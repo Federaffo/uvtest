@@ -7,7 +7,7 @@ import click
 
 from uvtest import __version__
 from uvtest.discovery import find_packages
-from uvtest.runner import run_tests_in_package, sync_package
+from uvtest.runner import run_tests_in_package, run_tests_isolated, sync_package
 
 
 @click.group()
@@ -90,13 +90,23 @@ def scan(ctx: click.Context) -> None:
     default=False,
     help="Stop execution after the first package with failing tests.",
 )
+@click.option(
+    "--sync",
+    is_flag=True,
+    default=False,
+    help="Use sync mode (cached venv) instead of isolated mode (default). "
+    "Isolated mode creates fresh ephemeral environments for hermetic CI runs. "
+    "Sync mode runs 'uv sync' and reuses .venv for faster repeated local runs.",
+)
 @click.pass_context
-def run(ctx: click.Context, fail_fast: bool) -> None:
+def run(ctx: click.Context, fail_fast: bool, sync: bool) -> None:
     """Run tests across all packages in the monorepo.
 
-    Discovers all packages with tests, runs 'uv sync' to install dependencies,
-    then executes pytest in each package. Shows progress and results for each
-    package.
+    By default, uses ISOLATED MODE for hermetic test execution (better for CI).
+    Each package runs in a fresh ephemeral environment with no cache pollution.
+
+    With --sync flag, uses SYNC MODE for faster local development. Runs 'uv sync'
+    to install dependencies into cached .venv, then executes pytest.
 
     Use -v to see package names as they complete.
     Use -vv to see full pytest output for each package.
@@ -125,37 +135,41 @@ def run(ctx: click.Context, fail_fast: bool) -> None:
             )
             click.echo(f"\nTesting {pkg_name_display}...")
 
-        # Run uv sync first
-        sync_result = sync_package(pkg.path, pkg.name, verbose=verbose >= 2)
+        # SYNC MODE: Run uv sync first, then pytest
+        if sync:
+            # Run uv sync first
+            sync_result = sync_package(pkg.path, pkg.name, verbose=verbose >= 2)
 
-        if not sync_result.success:
-            # Sync failed - show error and skip package
-            error_msg = f"Failed to sync {pkg.name}: {sync_result.output}"
-            if use_color:
-                click.echo(click.style(error_msg, fg="red"))
-            else:
-                click.echo(error_msg)
-            results.append((pkg.name, False, 0.0))
-
-            # Check fail-fast: stop if sync failed
-            if fail_fast:
-                fail_fast_msg = (
-                    "\nStopping execution due to --fail-fast (first failure detected)."
-                )
+            if not sync_result.success:
+                # Sync failed - show error and skip package
+                error_msg = f"Failed to sync {pkg.name}: {sync_result.output}"
                 if use_color:
-                    click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+                    click.echo(click.style(error_msg, fg="red"))
                 else:
-                    click.echo(fail_fast_msg)
-                break
+                    click.echo(error_msg)
+                results.append((pkg.name, False, 0.0))
 
-            continue
+                # Check fail-fast: stop if sync failed
+                if fail_fast:
+                    fail_fast_msg = "\nStopping execution due to --fail-fast (first failure detected)."
+                    if use_color:
+                        click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+                    else:
+                        click.echo(fail_fast_msg)
+                    break
 
-        # Show sync success in very verbose mode
-        if verbose >= 2 and sync_result.output:
-            click.echo(f"Sync output:\n{sync_result.output}")
+                continue
 
-        # Run tests
-        test_result = run_tests_in_package(pkg.path, pkg.name)
+            # Show sync success in very verbose mode
+            if verbose >= 2 and sync_result.output:
+                click.echo(f"Sync output:\n{sync_result.output}")
+
+            # Run tests using sync mode (uv run pytest)
+            test_result = run_tests_in_package(pkg.path, pkg.name)
+        else:
+            # ISOLATED MODE (default): Use isolated runner with ephemeral environment
+            test_result = run_tests_isolated(pkg.path, pkg.name, pkg.test_dependencies)
+
         results.append((pkg.name, test_result.passed, test_result.duration))
 
         # Show results based on verbosity
