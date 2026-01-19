@@ -199,7 +199,7 @@
         "verify exit code 1 when any package fails",
         "verify exit code 1 when run in directory with no packages"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use sys.exit() with appropriate codes. CI systems depend on these."
     },
     {

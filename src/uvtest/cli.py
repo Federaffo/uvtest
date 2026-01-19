@@ -52,7 +52,7 @@ def scan(ctx: click.Context) -> None:
 
     if not packages_with_tests:
         click.echo("No packages with tests found.")
-        return
+        sys.exit(1)
 
     # Determine if we should use colors (TTY detection)
     use_color = sys.stdout.isatty()
@@ -104,7 +104,7 @@ def run(ctx: click.Context) -> None:
 
     if not packages_with_tests:
         click.echo("No packages with tests found.")
-        return
+        sys.exit(1)
 
     # Track results
     results = []
@@ -164,6 +164,11 @@ def run(ctx: click.Context) -> None:
             else:
                 status = "✓" if passed else "✗"
             click.echo(f"{status} {pkg_name}")
+
+    # Exit with appropriate code for CI/CD integration
+    # Exit 1 if any test failed, exit 0 if all passed
+    any_failed = any(not passed for _, passed, _ in results)
+    sys.exit(1 if any_failed else 0)
 
 
 if __name__ == "__main__":
