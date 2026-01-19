@@ -1556,3 +1556,156 @@ class TestCoverageCommand:
             # Should exit with code 1
             assert result.exit_code == 1
             assert "No packages with tests found" in result.output
+
+
+class TestSummaryTable:
+    """Test summary table display."""
+
+    def test_summary_table_displays_after_run_command(self):
+        """Verify summary table is shown after run command completes."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock packages
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=["pytest"],
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=["pytest"],
+                ),
+            ]
+
+            # Mock test results (one pass, one fail)
+            mock_run_isolated.side_effect = [
+                Mock(passed=True, duration=1.5, output="Test output"),
+                Mock(passed=False, duration=2.3, output="Test failed"),
+            ]
+
+            result = runner.invoke(main, ["run"])
+
+            # Should show summary table
+            assert "TEST SUMMARY" in result.output
+            assert "Package" in result.output
+            assert "Status" in result.output
+            assert "Duration" in result.output
+            assert "pkg-a" in result.output
+            assert "pkg-b" in result.output
+            assert "PASSED" in result.output
+            assert "FAILED" in result.output
+            assert "Total: 2 packages" in result.output
+            assert "Passed: 1" in result.output
+            assert "Failed: 1" in result.output
+
+    def test_summary_table_displays_after_coverage_command(self):
+        """Verify summary table is shown after coverage command completes."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock packages
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/test-pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/test-pkg/pyproject.toml"),
+                    test_dependencies=[],
+                )
+            ]
+
+            # Mock test result
+            mock_run_isolated.return_value = Mock(
+                passed=True, duration=3.7, output="Coverage output"
+            )
+
+            result = runner.invoke(main, ["coverage"])
+
+            # Should show summary table
+            assert "TEST SUMMARY" in result.output
+            assert "Package" in result.output
+            assert "Status" in result.output
+            assert "Duration" in result.output
+            assert "test-pkg" in result.output
+            assert "PASSED" in result.output
+            assert "Total: 1 package" in result.output
+            assert "Passed: 1" in result.output
+            assert "Failed: 0" in result.output
+
+    def test_summary_table_shows_when_tests_fail(self):
+        """Verify summary table appears even when tests fail."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock packages
+            mock_find.return_value = [
+                Package(
+                    name="failing-pkg",
+                    path=Path("/fake/failing-pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/failing-pkg/pyproject.toml"),
+                    test_dependencies=["pytest"],
+                )
+            ]
+
+            # Mock failed test
+            mock_run_isolated.return_value = Mock(
+                passed=False, duration=0.8, output="Test failed"
+            )
+
+            result = runner.invoke(main, ["run"])
+
+            # Should show summary table even for failures
+            assert "TEST SUMMARY" in result.output
+            assert "failing-pkg" in result.output
+            assert "FAILED" in result.output
+            assert result.exit_code == 1
+
+    def test_summary_table_includes_duration(self):
+        """Verify summary table includes formatted duration."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/test-pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/test-pkg/pyproject.toml"),
+                    test_dependencies=[],
+                )
+            ]
+
+            # Mock test result with specific duration
+            mock_run_isolated.return_value = Mock(
+                passed=True, duration=12.456, output="Test output"
+            )
+
+            result = runner.invoke(main, ["run"])
+
+            # Should show duration formatted to 2 decimal places
+            assert "12.46s" in result.output or "12.45s" in result.output
+            assert (
+                "Duration: 12.46s" in result.output
+                or "Duration: 12.45s" in result.output
+            )

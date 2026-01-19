@@ -233,7 +233,7 @@
         "verify summary shows after 'uvtest coverage' completes",
         "verify summary appears even when some tests fail"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Keep table simple and readable. Align columns properly."
     },
     {

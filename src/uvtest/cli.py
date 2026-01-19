@@ -11,6 +11,68 @@ from uvtest.discovery import find_packages
 from uvtest.runner import run_tests_in_package, run_tests_isolated, sync_package
 
 
+def print_summary_table(
+    results: list[tuple[str, bool, float]], use_color: bool
+) -> None:
+    """Print a formatted summary table of test results.
+
+    Args:
+        results: List of tuples (package_name, passed, duration)
+        use_color: Whether to use colored output
+    """
+    if not results:
+        return
+
+    # Calculate column widths
+    max_name_len = max(len(pkg_name) for pkg_name, _, _ in results)
+    max_name_len = max(max_name_len, len("Package"))  # At least header width
+
+    # Header
+    click.echo("\n" + "=" * 70)
+    click.echo("TEST SUMMARY")
+    click.echo("=" * 70)
+
+    # Column headers
+    header = f"{'Package':<{max_name_len}}  {'Status':<10}  {'Duration':<10}"
+    click.echo(header)
+    click.echo("-" * 70)
+
+    # Table rows
+    for pkg_name, passed, duration in results:
+        # Format status
+        if use_color:
+            if passed:
+                status = click.style("PASSED", fg="green", bold=True)
+            else:
+                status = click.style("FAILED", fg="red", bold=True)
+        else:
+            status = "PASSED" if passed else "FAILED"
+
+        # Format duration
+        duration_str = f"{duration:.2f}s"
+
+        # Print row
+        click.echo(f"{pkg_name:<{max_name_len}}  {status:<20}  {duration_str:<10}")
+
+    # Summary statistics
+    click.echo("-" * 70)
+    passed_count = sum(1 for _, passed, _ in results if passed)
+    failed_count = sum(1 for _, passed, _ in results if not passed)
+    total_duration = sum(duration for _, _, duration in results)
+
+    summary = f"Total: {len(results)} packages  |  "
+    if use_color:
+        summary += click.style(f"Passed: {passed_count}", fg="green") + "  |  "
+        summary += click.style(f"Failed: {failed_count}", fg="red") + "  |  "
+    else:
+        summary += f"Passed: {passed_count}  |  "
+        summary += f"Failed: {failed_count}  |  "
+    summary += f"Duration: {total_duration:.2f}s"
+
+    click.echo(summary)
+    click.echo("=" * 70)
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="uvtest")
 @click.option(
@@ -244,18 +306,8 @@ def run(
                 click.echo(fail_fast_msg)
             break
 
-    # Minimal output mode (verbose == 0): just show package names with status
-    if verbose == 0:
-        click.echo("\nTest Results:")
-        for pkg_name, passed, duration in results:
-            if use_color:
-                if passed:
-                    status = click.style("✓", fg="green")
-                else:
-                    status = click.style("✗", fg="red")
-            else:
-                status = "✓" if passed else "✗"
-            click.echo(f"{status} {pkg_name}")
+    # Show summary table after all tests complete
+    print_summary_table(results, use_color)
 
     # Exit with appropriate code for CI/CD integration
     # Exit 1 if any test failed, exit 0 if all passed
@@ -460,18 +512,8 @@ def coverage(
                 click.echo(fail_fast_msg)
             break
 
-    # Minimal output mode (verbose == 0): just show package names with status
-    if verbose == 0:
-        click.echo("\nCoverage Results:")
-        for pkg_name, passed, duration in results:
-            if use_color:
-                if passed:
-                    status = click.style("✓", fg="green")
-                else:
-                    status = click.style("✗", fg="red")
-            else:
-                status = "✓" if passed else "✗"
-            click.echo(f"{status} {pkg_name}")
+    # Show summary table after all tests complete
+    print_summary_table(results, use_color)
 
     # Exit with appropriate code for CI/CD integration
     # Exit 1 if any test failed, exit 0 if all passed
