@@ -564,3 +564,331 @@ class TestSyncModeFlag:
             # Should sync and run tests for both packages
             assert mock_sync.call_count == 2
             assert mock_run.call_count == 2
+
+
+class TestPackageFilter:
+    """Test --package/-p flag for filtering packages."""
+
+    def test_exact_name_match_works(self):
+        """Verify exact package name match works."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock three packages
+            mock_find.return_value = [
+                Package(
+                    name="mypackage",
+                    path=Path("/fake/mypackage"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/mypackage/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="otherpackage",
+                    path=Path("/fake/otherpackage"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/otherpackage/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="thirdpackage",
+                    path=Path("/fake/thirdpackage"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/thirdpackage/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--package", "mypackage"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+            # Should only run tests once (for mypackage)
+            assert mock_isolated.call_count == 1
+            # Verify it was called with the right package
+            mock_isolated.assert_called_once_with(
+                Path("/fake/mypackage"),
+                "mypackage",
+                [],
+            )
+
+    def test_glob_pattern_match_works(self):
+        """Verify glob pattern matching works (e.g., 'core-*')."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock packages: two match 'core-*' pattern, one doesn't
+            mock_find.return_value = [
+                Package(
+                    name="core-api",
+                    path=Path("/fake/core-api"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/core-api/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="core-utils",
+                    path=Path("/fake/core-utils"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/core-utils/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="service-worker",
+                    path=Path("/fake/service-worker"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/service-worker/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--package", "core-*"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+            # Should run tests twice (for core-api and core-utils)
+            assert mock_isolated.call_count == 2
+
+    def test_multiple_filters_work(self):
+        """Verify multiple --package filters work (e.g., --package foo --package bar)."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock four packages
+            mock_find.return_value = [
+                Package(
+                    name="foo",
+                    path=Path("/fake/foo"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/foo/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="bar",
+                    path=Path("/fake/bar"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/bar/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="baz",
+                    path=Path("/fake/baz"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/baz/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="qux",
+                    path=Path("/fake/qux"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/qux/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_isolated.return_value = mock_test_result
+
+            result = runner.invoke(
+                main, ["run", "--package", "foo", "--package", "bar"]
+            )
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+            # Should run tests twice (for foo and bar only)
+            assert mock_isolated.call_count == 2
+
+    def test_short_flag_works(self):
+        """Verify -p short flag works."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock two packages
+            mock_find.return_value = [
+                Package(
+                    name="testpkg",
+                    path=Path("/fake/testpkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/testpkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="otherpkg",
+                    path=Path("/fake/otherpkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/otherpkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "-p", "testpkg"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+            # Should only run tests once (for testpkg)
+            assert mock_isolated.call_count == 1
+
+    def test_error_when_no_packages_match_filter(self):
+        """Verify error is shown when no packages match the filter."""
+        runner = CliRunner()
+
+        with patch("uvtest.cli.find_packages") as mock_find:
+            # Mock packages that don't match the filter
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            result = runner.invoke(main, ["run", "--package", "nonexistent"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+            # Should show error message with the filter name
+            assert "No packages match the filter" in result.output
+            assert "nonexistent" in result.output
+
+    def test_filter_preserves_fail_fast_behavior(self):
+        """Verify --package filter works with --fail-fast."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock three packages matching 'pkg-*' pattern
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="other-pkg",
+                    path=Path("/fake/other-pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/other-pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock failed test for first package
+            mock_test_result = Mock()
+            mock_test_result.passed = False
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests failed"
+            mock_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--package", "pkg-*", "--fail-fast"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+            # Should stop after first failure
+            assert mock_isolated.call_count == 1
+            # Should show fail-fast message
+            assert "Stopping execution due to --fail-fast" in result.output
+
+    def test_filter_works_with_sync_mode(self):
+        """Verify --package filter works with --sync mode."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock three packages
+            mock_find.return_value = [
+                Package(
+                    name="selected",
+                    path=Path("/fake/selected"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/selected/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="notselected",
+                    path=Path("/fake/notselected"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/notselected/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful sync
+            mock_sync_result = Mock()
+            mock_sync_result.success = True
+            mock_sync_result.output = ""
+            mock_sync.return_value = mock_sync_result
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--sync", "--package", "selected"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+            # Should sync and run only the selected package
+            assert mock_sync.call_count == 1
+            assert mock_run.call_count == 1

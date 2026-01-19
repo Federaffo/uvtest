@@ -1269,3 +1269,190 @@ sync modes, and is independent of other pending tasks.
 
 Alternatively: pytest-passthrough (add -- support for passing args to pytest) 
 is also a good next task as it's well-defined and extends the run command.
+--------------------------------------------------------------------------------
+2026-01-19 | Task: package-filter | Status: COMPLETED
+--------------------------------------------------------------------------------
+
+TASK DESCRIPTION:
+Add --package flag to filter which packages to test
+
+PRIORITY DECISION:
+Selected package-filter as the highest priority task because:
+1. It was explicitly recommended in the previous progress entry as the next task
+2. It's a COMMONLY REQUESTED feature for development workflows - developers often 
+   want to run tests for specific packages only rather than the entire monorepo
+3. It's a natural extension of the run command that was recently completed
+4. It works seamlessly with all existing features (--fail-fast, --sync, -v/-vv)
+5. It's well-defined with clear acceptance criteria and straightforward implementation
+6. The coverage command (not yet implemented) will also need this flag, so 
+   implementing it now establishes the pattern
+
+IMPLEMENTATION DETAILS:
+
+1. Updated src/uvtest/cli.py imports:
+   - Added import fnmatch for glob pattern matching functionality
+   - This provides Unix-style pattern matching (*, ?, [seq], [!seq])
+
+2. Added --package/-p flag to run command:
+   - @click.option("--package", "-p", multiple=True)
+   - multiple=True allows users to specify the flag multiple times
+   - Help text explains glob pattern support and multiple usage
+   - Added package parameter (tuple[str, ...]) to run() function signature
+
+3. Implemented package filtering logic:
+   - Applied filter AFTER discovering packages but BEFORE running tests
+   - When package filter is specified:
+     * Iterates through all packages_with_tests
+     * For each package, checks if name matches ANY of the filter patterns
+     * Uses fnmatch.fnmatch() for pattern matching (supports glob patterns)
+     * Collects matching packages into filtered_packages list
+     * Replaces packages_with_tests with filtered_packages
+   
+   - Error handling when no packages match:
+     * Shows error message listing all filters that were applied
+     * Uses colored output (red) when TTY detected
+     * Exits with code 1 (proper error code for CI/CD)
+
+4. Key design decisions:
+   - Filter is applied to packages that HAVE tests (not all discovered packages)
+   - A package only needs to match ONE pattern (OR logic, not AND)
+   - Uses fnmatch for glob patterns (Unix-style: *, ?, [seq], [!seq])
+   - Short flag -p is available for convenience
+   - Filter works with both isolated mode (default) and --sync mode
+   - Filter works with --fail-fast (stop on first failure of filtered packages)
+   - Filter works with all verbosity levels (-v, -vv)
+   - Error message is clear and actionable (lists the filters that didn't match)
+
+5. Created comprehensive unit tests in tests/test_cli.py:
+   - TestPackageFilter class with 7 tests:
+     
+     * test_exact_name_match_works:
+       - Verifies exact package name filtering (--package mypackage)
+       - Mocks 3 packages, filters to 1
+       - Verifies only the filtered package is tested
+     
+     * test_glob_pattern_match_works:
+       - Verifies glob pattern matching (--package 'core-*')
+       - Mocks 3 packages: 2 match 'core-*', 1 doesn't
+       - Verifies both matching packages are tested
+     
+     * test_multiple_filters_work:
+       - Verifies multiple --package flags (--package foo --package bar)
+       - Mocks 4 packages, filters to 2
+       - Verifies only the 2 matching packages are tested
+     
+     * test_short_flag_works:
+       - Verifies -p short flag works identically to --package
+       - Mocks 2 packages, filters to 1
+     
+     * test_error_when_no_packages_match_filter:
+       - Verifies error shown when filter matches nothing
+       - Verifies exit code 1
+       - Verifies error message includes the filter pattern
+     
+     * test_filter_preserves_fail_fast_behavior:
+       - Verifies --package works with --fail-fast
+       - Filters to 2 packages, first one fails
+       - Verifies execution stops after first failure
+       - Verifies fail-fast message is shown
+     
+     * test_filter_works_with_sync_mode:
+       - Verifies --package works with --sync mode
+       - Mocks 2 packages, filters to 1
+       - Verifies sync and run are called only for filtered package
+
+VERIFICATION:
+
+All acceptance criteria verified:
+- ✓ add --package/-p flag (multiple=True) to 'run' and 'coverage' commands
+  - Added to run command (coverage command not yet implemented)
+  - Both --package and -p work correctly
+  - multiple=True allows multiple filters
+- ✓ filter discovered packages by name matching
+  - Filtering implemented using fnmatch
+  - Only packages with tests are considered for filtering
+- ✓ support glob patterns (e.g., 'core-*' matches 'core-api', 'core-utils')
+  - Test verified: test_glob_pattern_match_works passes
+  - fnmatch provides full glob pattern support
+- ✓ show error if no packages match the filter
+  - Test verified: test_error_when_no_packages_match_filter passes
+  - Exit code 1 with clear error message
+- ✓ verify exact name match works: --package mypackage
+  - Test verified: test_exact_name_match_works passes
+- ✓ verify glob pattern works: --package 'core-*'
+  - Test verified: test_glob_pattern_match_works passes
+- ✓ verify multiple filters work: --package foo --package bar
+  - Test verified: test_multiple_filters_work passes
+
+Testing results:
+- All 107 tests pass (100 existing + 7 new package filter tests)
+- `uv run pytest tests/ -v` shows 107 passed, 1 warning (benign)
+- Test breakdown:
+  * CLI tests: 22 passed (15 existing + 7 new)
+  * Discovery tests: 43 passed (no changes)
+  * Runner tests: 42 passed (no changes)
+
+Manual verification:
+- `uv run uvtest run --help` shows --package flag with description
+- Flag appears in help text with explanation of glob pattern support
+- Both --package and -p work in actual usage
+
+FILES MODIFIED:
+- src/uvtest/cli.py (added fnmatch import, --package flag, filtering logic, ~25 lines)
+- tests/test_cli.py (added TestPackageFilter class with 7 tests, ~280 lines)
+
+FILES UPDATED:
+- prd.jsonc (marked package-filter as passes: true)
+
+NOTES:
+- AGENTS.md does not exist, so no typecheck/lint requirements to run
+- All 107 tests pass with new functionality
+- The PytestCollectionWarning about TestResult class persists but is benign
+- Package filtering is applied AFTER discovering all packages but BEFORE 
+  running tests, which is the optimal point for filtering
+- Using fnmatch (stdlib) instead of external glob library keeps dependencies minimal
+- Filter works seamlessly with all existing features (--fail-fast, --sync, 
+  verbosity levels, exit codes)
+- OR logic for multiple filters (package matches if it matches ANY filter)
+- Error handling is robust and provides clear feedback to users
+
+ARCHITECTURAL SIGNIFICANCE:
+This task implements a critical developer experience feature:
+1. Enables focused testing - developers can test just the packages they're 
+   working on without running the entire monorepo
+2. Significantly speeds up development workflow in large monorepos
+3. Works with both isolated mode (hermetic CI) and sync mode (fast local dev)
+4. Integrates cleanly with --fail-fast for quick feedback loops
+5. Supports glob patterns for flexible package selection (e.g., 'core-*', 
+   'service-*', 'lib-*')
+6. Multiple filters allow complex selection (e.g., --package api-* --package utils)
+
+DESIGN DECISIONS:
+1. Filter applied to packages_with_tests (not all discovered packages)
+2. OR logic for multiple filters (not AND) - more intuitive for users
+3. Uses fnmatch for glob pattern matching (stdlib, no extra dependencies)
+4. Short flag -p available for convenience (faster typing)
+5. Error when no matches shows ALL filters that were applied
+6. Filter is applied early (before any test execution) for efficiency
+7. Works identically in both isolated and sync modes
+8. Preserved all existing behavior (--fail-fast, verbosity, exit codes)
+9. Tests use mocking to verify filtering logic without actual test execution
+10. Coverage command will need same flag when implemented (consistent UX)
+
+USAGE EXAMPLES:
+- Test single package: `uvtest run --package mypackage`
+- Test with pattern: `uvtest run --package 'core-*'`
+- Test multiple packages: `uvtest run -p api-server -p api-client`
+- Combined with other flags: `uvtest run --package 'lib-*' --fail-fast -vv`
+- With sync mode: `uvtest run --sync --package mypackage`
+
+NEXT RECOMMENDED TASK:
+pytest-passthrough - Add support for passing additional arguments to pytest 
+via the -- separator. This is another commonly requested feature that complements 
+package filtering. Developers often want to pass pytest-specific flags like 
+-k for test name filtering, -x for stop on first failure, --tb=short for 
+shorter tracebacks, etc. It's well-defined, straightforward to implement, 
+and will work with both isolated and sync modes.
+
+Alternatively: coverage-command could be implemented next as it's a major 
+user-facing feature, though it's more complex than pytest-passthrough.

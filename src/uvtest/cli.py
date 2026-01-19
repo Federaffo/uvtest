@@ -1,5 +1,6 @@
 """CLI entry point for uvtest."""
 
+import fnmatch
 import sys
 from pathlib import Path
 
@@ -98,8 +99,17 @@ def scan(ctx: click.Context) -> None:
     "Isolated mode creates fresh ephemeral environments for hermetic CI runs. "
     "Sync mode runs 'uv sync' and reuses .venv for faster repeated local runs.",
 )
+@click.option(
+    "--package",
+    "-p",
+    multiple=True,
+    help="Filter packages by name. Supports glob patterns (e.g., 'core-*'). "
+    "Can be specified multiple times to test multiple packages.",
+)
 @click.pass_context
-def run(ctx: click.Context, fail_fast: bool, sync: bool) -> None:
+def run(
+    ctx: click.Context, fail_fast: bool, sync: bool, package: tuple[str, ...]
+) -> None:
     """Run tests across all packages in the monorepo.
 
     By default, uses ISOLATED MODE for hermetic test execution (better for CI).
@@ -118,6 +128,27 @@ def run(ctx: click.Context, fail_fast: bool, sync: bool) -> None:
     # Discover all packages with tests
     packages = find_packages(Path.cwd())
     packages_with_tests = [p for p in packages if p.has_tests]
+
+    # Apply package filter if specified
+    if package:
+        filtered_packages = []
+        for pkg in packages_with_tests:
+            # Check if package name matches any of the filter patterns
+            for pattern in package:
+                if fnmatch.fnmatch(pkg.name, pattern):
+                    filtered_packages.append(pkg)
+                    break
+
+        packages_with_tests = filtered_packages
+
+        # Show error if filter matched nothing
+        if not packages_with_tests:
+            error_msg = f"No packages match the filter(s): {', '.join(package)}"
+            if use_color:
+                click.echo(click.style(error_msg, fg="red"))
+            else:
+                click.echo(error_msg)
+            sys.exit(1)
 
     if not packages_with_tests:
         click.echo("No packages with tests found.")

@@ -187,7 +187,7 @@
         "verify glob pattern works: --package 'core-*'",
         "verify multiple filters work: --package foo --package bar"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use fnmatch for glob pattern matching."
     },
     {
