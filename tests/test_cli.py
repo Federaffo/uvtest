@@ -1152,3 +1152,407 @@ class TestPytestPassthrough:
 
             # Verify fail-fast message appeared
             assert "Stopping execution due to --fail-fast" in result.output
+
+
+class TestCoverageCommand:
+    """Test coverage command functionality."""
+
+    def test_coverage_runs_with_coverage_flags_isolated_mode(self):
+        """Verify coverage command adds --cov flags in isolated mode."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock one package with src/packagename structure
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=["pytest>=7.0"],
+                ),
+            ]
+
+            # Mock the path.exists() to simulate src/test-pkg directory exists
+            with patch("pathlib.Path.exists") as mock_exists:
+                # First call checks src/test-pkg, return True
+                mock_exists.return_value = True
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed\nTOTAL coverage: 85%"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Verify run_tests_isolated was called with coverage args
+                assert mock_isolated.call_count == 1
+                call_args = mock_isolated.call_args
+
+                # Check that test_dependencies includes pytest-cov
+                test_deps = call_args[0][2]  # Third positional arg is test_dependencies
+                assert any("pytest-cov" in dep for dep in test_deps)
+
+                # Check that pytest_args includes coverage flags
+                pytest_args = call_args.kwargs["pytest_args"]
+                assert "--cov" in pytest_args
+                assert "src/test-pkg" in pytest_args
+                assert "--cov-report=term" in pytest_args
+
+    def test_coverage_runs_with_sync_mode(self):
+        """Verify coverage command works with --sync mode."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=["pytest>=7.0"],
+                ),
+            ]
+
+            # Mock successful sync
+            mock_sync_result = Mock()
+            mock_sync_result.success = True
+            mock_sync_result.output = ""
+            mock_sync.return_value = mock_sync_result
+
+            # Mock the path.exists() to simulate packagename directory exists
+            with patch("pathlib.Path.exists") as mock_exists:
+                # First call checks src/test-pkg (False), second checks test-pkg (True)
+                mock_exists.side_effect = [False, True]
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_run.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage", "--sync"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Verify sync and run were called
+                assert mock_sync.call_count == 1
+                assert mock_run.call_count == 1
+
+                # Verify coverage args were passed to run_tests_in_package
+                call_args = mock_run.call_args
+                pytest_args = call_args.kwargs["pytest_args"]
+                assert "--cov" in pytest_args
+                assert "test-pkg" in pytest_args
+                assert "--cov-report=term" in pytest_args
+
+    def test_coverage_adds_pytest_cov_to_dependencies(self):
+        """Verify coverage adds pytest-cov if not in test_dependencies."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock package without pytest-cov in test_dependencies
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=["pytest>=7.0"],  # No pytest-cov
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False  # No src directory
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Verify pytest-cov was added to test_dependencies
+                call_args = mock_isolated.call_args
+                test_deps = call_args[0][2]
+                assert "pytest-cov" in test_deps
+                assert "pytest>=7.0" in test_deps
+
+    def test_coverage_preserves_pytest_cov_if_present(self):
+        """Verify coverage doesn't duplicate pytest-cov if already present."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock package with pytest-cov already in test_dependencies
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=["pytest>=7.0", "pytest-cov>=4.0"],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Verify pytest-cov wasn't duplicated
+                call_args = mock_isolated.call_args
+                test_deps = call_args[0][2]
+                pytest_cov_count = sum(1 for dep in test_deps if "pytest-cov" in dep)
+                assert pytest_cov_count == 1
+
+    def test_coverage_combines_coverage_args_with_pytest_args(self):
+        """Verify coverage command combines coverage args with user pytest args."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage", "--", "-k", "test_foo"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Verify both coverage args and user args are present
+                call_args = mock_isolated.call_args
+                pytest_args = call_args.kwargs["pytest_args"]
+                assert "--cov-report=term" in pytest_args
+                assert "-k" in pytest_args
+                assert "test_foo" in pytest_args
+
+    def test_coverage_works_with_package_filter(self):
+        """Verify coverage command works with --package filter."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock two packages
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage", "--package", "pkg-a"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+                # Should only run coverage for pkg-a
+                assert mock_isolated.call_count == 1
+                call_args = mock_isolated.call_args
+                assert call_args[0][1] == "pkg-a"  # package_name arg
+
+    def test_coverage_works_with_fail_fast(self):
+        """Verify coverage command works with --fail-fast flag."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock two packages
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock failed test for first package
+                mock_test_result = Mock()
+                mock_test_result.passed = False
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests failed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage", "--fail-fast"])
+
+                # Should exit with code 1
+                assert result.exit_code == 1
+
+                # Should stop after first package
+                assert mock_isolated.call_count == 1
+
+                # Should show fail-fast message
+                assert "Stopping execution due to --fail-fast" in result.output
+
+    def test_coverage_exits_0_when_all_pass(self):
+        """Verify coverage exits with code 0 when all tests pass."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock successful test run
+                mock_test_result = Mock()
+                mock_test_result.passed = True
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests passed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage"])
+
+                # Should exit with code 0
+                assert result.exit_code == 0
+
+    def test_coverage_exits_1_when_any_fail(self):
+        """Verify coverage exits with code 1 when any test fails."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = False
+
+                # Mock failed test run
+                mock_test_result = Mock()
+                mock_test_result.passed = False
+                mock_test_result.duration = 1.0
+                mock_test_result.output = "Tests failed"
+                mock_isolated.return_value = mock_test_result
+
+                result = runner.invoke(main, ["coverage"])
+
+                # Should exit with code 1
+                assert result.exit_code == 1
+
+    def test_coverage_exits_1_when_no_packages_found(self):
+        """Verify coverage exits with code 1 when no packages found."""
+        runner = CliRunner()
+
+        with patch("uvtest.cli.find_packages") as mock_find:
+            # Mock no packages
+            mock_find.return_value = []
+
+            result = runner.invoke(main, ["coverage"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+            assert "No packages with tests found" in result.output

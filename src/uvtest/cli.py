@@ -263,5 +263,221 @@ def run(
     sys.exit(1 if any_failed else 0)
 
 
+@main.command()
+@click.option(
+    "--fail-fast",
+    is_flag=True,
+    default=False,
+    help="Stop execution after the first package with failing tests.",
+)
+@click.option(
+    "--sync",
+    is_flag=True,
+    default=False,
+    help="Use sync mode (cached venv) instead of isolated mode (default). "
+    "Isolated mode creates fresh ephemeral environments for hermetic CI runs. "
+    "Sync mode runs 'uv sync' and reuses .venv for faster repeated local runs.",
+)
+@click.option(
+    "--package",
+    "-p",
+    multiple=True,
+    help="Filter packages by name. Supports glob patterns (e.g., 'core-*'). "
+    "Can be specified multiple times to test multiple packages.",
+)
+@click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def coverage(
+    ctx: click.Context,
+    fail_fast: bool,
+    sync: bool,
+    package: tuple[str, ...],
+    pytest_args: tuple[str, ...],
+) -> None:
+    """Run tests with coverage reports across all packages in the monorepo.
+
+    By default, uses ISOLATED MODE for hermetic test execution (better for CI).
+    Each package runs in a fresh ephemeral environment with no cache pollution.
+
+    With --sync flag, uses SYNC MODE for faster local development. Runs 'uv sync'
+    to install dependencies into cached .venv, then executes pytest with coverage.
+
+    Coverage is measured for each package's own source code and displayed in the
+    terminal output.
+
+    Use -v to see package names as they complete.
+    Use -vv to see full pytest and coverage output for each package.
+    Use --fail-fast to stop after the first failure.
+
+    Additional pytest arguments can be passed after -- separator.
+    Example: uvtest coverage -- -k test_foo --tb=short
+    """
+    verbose = ctx.obj.get("verbose", 0)
+    use_color = sys.stdout.isatty()
+
+    # Discover all packages with tests
+    packages = find_packages(Path.cwd())
+    packages_with_tests = [p for p in packages if p.has_tests]
+
+    # Apply package filter if specified
+    if package:
+        filtered_packages = []
+        for pkg in packages_with_tests:
+            # Check if package name matches any of the filter patterns
+            for pattern in package:
+                if fnmatch.fnmatch(pkg.name, pattern):
+                    filtered_packages.append(pkg)
+                    break
+
+        packages_with_tests = filtered_packages
+
+        # Show error if filter matched nothing
+        if not packages_with_tests:
+            error_msg = f"No packages match the filter(s): {', '.join(package)}"
+            if use_color:
+                click.echo(click.style(error_msg, fg="red"))
+            else:
+                click.echo(error_msg)
+            sys.exit(1)
+
+    if not packages_with_tests:
+        click.echo("No packages with tests found.")
+        sys.exit(1)
+
+    # Track results
+    results = []
+
+    # Run tests with coverage in each package
+    for pkg in packages_with_tests:
+        # Show which package is being tested (unless verbosity is 0)
+        if verbose >= 1:
+            pkg_name_display = (
+                click.style(pkg.name, fg="cyan", bold=True) if use_color else pkg.name
+            )
+            click.echo(f"\nTesting {pkg_name_display} with coverage...")
+
+        # Determine source directory for coverage measurement
+        # Try common patterns: src/packagename, packagename, src
+        src_dir = None
+        if (pkg.path / "src" / pkg.name).exists():
+            src_dir = f"src/{pkg.name}"
+        elif (pkg.path / pkg.name).exists():
+            src_dir = pkg.name
+        elif (pkg.path / "src").exists():
+            src_dir = "src"
+
+        # Build coverage args
+        coverage_args = []
+        if src_dir:
+            coverage_args.extend(["--cov", src_dir])
+        coverage_args.append("--cov-report=term")
+
+        # Combine coverage args with any user-provided pytest args
+        combined_args = (
+            coverage_args + list(pytest_args) if pytest_args else coverage_args
+        )
+
+        # SYNC MODE: Run uv sync first, then pytest with coverage
+        if sync:
+            # Run uv sync first
+            sync_result = sync_package(pkg.path, pkg.name, verbose=verbose >= 2)
+
+            if not sync_result.success:
+                # Sync failed - show error and skip package
+                error_msg = f"Failed to sync {pkg.name}: {sync_result.output}"
+                if use_color:
+                    click.echo(click.style(error_msg, fg="red"))
+                else:
+                    click.echo(error_msg)
+                results.append((pkg.name, False, 0.0))
+
+                # Check fail-fast: stop if sync failed
+                if fail_fast:
+                    fail_fast_msg = "\nStopping execution due to --fail-fast (first failure detected)."
+                    if use_color:
+                        click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+                    else:
+                        click.echo(fail_fast_msg)
+                    break
+
+                continue
+
+            # Show sync success in very verbose mode
+            if verbose >= 2 and sync_result.output:
+                click.echo(f"Sync output:\n{sync_result.output}")
+
+            # Run tests with coverage using sync mode (uv run pytest)
+            test_result = run_tests_in_package(
+                pkg.path,
+                pkg.name,
+                pytest_args=combined_args,
+            )
+        else:
+            # ISOLATED MODE (default): Use isolated runner with ephemeral environment
+            # Need to ensure pytest-cov is available
+            test_deps = list(pkg.test_dependencies)
+            # Add pytest-cov if not already in dependencies
+            if not any("pytest-cov" in dep for dep in test_deps):
+                test_deps.append("pytest-cov")
+
+            test_result = run_tests_isolated(
+                pkg.path,
+                pkg.name,
+                test_deps,
+                pytest_args=combined_args,
+            )
+
+        results.append((pkg.name, test_result.passed, test_result.duration))
+
+        # Show results based on verbosity
+        if verbose >= 2:
+            # Show full pytest output (includes coverage report)
+            click.echo(test_result.output)
+        elif verbose >= 1:
+            # Show just the coverage summary if available
+            # Extract coverage lines from output (lines containing "TOTAL" or "coverage:")
+            lines = test_result.output.split("\n")
+            for line in lines:
+                if "TOTAL" in line or "coverage:" in line.lower():
+                    click.echo(line)
+
+        if verbose >= 1:
+            # Show pass/fail status
+            if test_result.passed:
+                status = click.style("✓ PASSED", fg="green") if use_color else "PASSED"
+            else:
+                status = click.style("✗ FAILED", fg="red") if use_color else "FAILED"
+            click.echo(f"{pkg.name}: {status}")
+
+        # Check fail-fast: stop if this test failed
+        if fail_fast and not test_result.passed:
+            fail_fast_msg = (
+                "\nStopping execution due to --fail-fast (first failure detected)."
+            )
+            if use_color:
+                click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+            else:
+                click.echo(fail_fast_msg)
+            break
+
+    # Minimal output mode (verbose == 0): just show package names with status
+    if verbose == 0:
+        click.echo("\nCoverage Results:")
+        for pkg_name, passed, duration in results:
+            if use_color:
+                if passed:
+                    status = click.style("✓", fg="green")
+                else:
+                    status = click.style("✗", fg="red")
+            else:
+                status = "✓" if passed else "✗"
+            click.echo(f"{status} {pkg_name}")
+
+    # Exit with appropriate code for CI/CD integration
+    # Exit 1 if any test failed, exit 0 if all passed
+    any_failed = any(not passed for _, passed, _ in results)
+    sys.exit(1 if any_failed else 0)
+
+
 if __name__ == "__main__":
     main()

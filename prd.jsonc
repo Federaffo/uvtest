@@ -217,7 +217,7 @@
         "verify coverage report shows in terminal for each package",
         "verify coverage measures the correct source directory per package"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use pytest-cov: 'pytest --cov=src/packagename --cov-report=term'. Determine source dir from package structure. In isolated mode, include pytest-cov in --with flags."
     },
     {
