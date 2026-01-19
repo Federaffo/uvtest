@@ -106,9 +106,14 @@ def scan(ctx: click.Context) -> None:
     help="Filter packages by name. Supports glob patterns (e.g., 'core-*'). "
     "Can be specified multiple times to test multiple packages.",
 )
+@click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def run(
-    ctx: click.Context, fail_fast: bool, sync: bool, package: tuple[str, ...]
+    ctx: click.Context,
+    fail_fast: bool,
+    sync: bool,
+    package: tuple[str, ...],
+    pytest_args: tuple[str, ...],
 ) -> None:
     """Run tests across all packages in the monorepo.
 
@@ -121,6 +126,9 @@ def run(
     Use -v to see package names as they complete.
     Use -vv to see full pytest output for each package.
     Use --fail-fast to stop after the first failure.
+
+    Additional pytest arguments can be passed after -- separator.
+    Example: uvtest run -- -k test_foo -x --tb=short
     """
     verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
@@ -196,10 +204,19 @@ def run(
                 click.echo(f"Sync output:\n{sync_result.output}")
 
             # Run tests using sync mode (uv run pytest)
-            test_result = run_tests_in_package(pkg.path, pkg.name)
+            test_result = run_tests_in_package(
+                pkg.path,
+                pkg.name,
+                pytest_args=list(pytest_args) if pytest_args else None,
+            )
         else:
             # ISOLATED MODE (default): Use isolated runner with ephemeral environment
-            test_result = run_tests_isolated(pkg.path, pkg.name, pkg.test_dependencies)
+            test_result = run_tests_isolated(
+                pkg.path,
+                pkg.name,
+                pkg.test_dependencies,
+                pytest_args=list(pytest_args) if pytest_args else None,
+            )
 
         results.append((pkg.name, test_result.passed, test_result.duration))
 

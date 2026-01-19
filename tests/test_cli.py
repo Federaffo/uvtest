@@ -434,6 +434,7 @@ class TestSyncModeFlag:
                 Path("/fake/pkg-a"),
                 "pkg-a",
                 ["pytest>=7.0", "pytest-cov>=4.0"],
+                pytest_args=None,
             )
 
     def test_sync_flag_uses_sync_mode(self):
@@ -515,6 +516,7 @@ class TestSyncModeFlag:
                 Path("/fake/pkg-a"),
                 "pkg-a",
                 [],
+                pytest_args=None,
             )
 
     def test_sync_mode_with_multiple_packages(self):
@@ -620,6 +622,7 @@ class TestPackageFilter:
                 Path("/fake/mypackage"),
                 "mypackage",
                 [],
+                pytest_args=None,
             )
 
     def test_glob_pattern_match_works(self):
@@ -892,3 +895,260 @@ class TestPackageFilter:
             # Should sync and run only the selected package
             assert mock_sync.call_count == 1
             assert mock_run.call_count == 1
+
+
+class TestPytestPassthrough:
+    """Test passing additional arguments to pytest via -- separator."""
+
+    def test_pytest_args_passed_to_isolated_runner(self):
+        """Verify pytest args are passed to run_tests_isolated in isolated mode."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=["pytest>=7.0"],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--", "-k", "test_foo"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+
+            # Verify run_tests_isolated was called with pytest args
+            assert mock_run_isolated.call_count == 1
+            call_args = mock_run_isolated.call_args
+            # Check that pytest_args contains ["-k", "test_foo"]
+            assert call_args.kwargs["pytest_args"] == ["-k", "test_foo"]
+
+    def test_pytest_args_passed_to_sync_runner(self):
+        """Verify pytest args are passed to run_tests_in_package in sync mode."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful sync
+            mock_sync_result = Mock()
+            mock_sync_result.success = True
+            mock_sync_result.output = ""
+            mock_sync.return_value = mock_sync_result
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--sync", "--", "-v", "-s"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+
+            # Verify run_tests_in_package was called with pytest args
+            assert mock_run.call_count == 1
+            call_args = mock_run.call_args
+            # Check that pytest_args contains ["-v", "-s"]
+            assert call_args.kwargs["pytest_args"] == ["-v", "-s"]
+
+    def test_multiple_pytest_args_passed(self):
+        """Verify multiple pytest args are passed correctly."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run_isolated.return_value = mock_test_result
+
+            result = runner.invoke(
+                main, ["run", "--", "-x", "--tb=short", "-k", "test_foo"]
+            )
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+
+            # Verify pytest args contain all arguments
+            call_args = mock_run_isolated.call_args
+            assert call_args.kwargs["pytest_args"] == [
+                "-x",
+                "--tb=short",
+                "-k",
+                "test_foo",
+            ]
+
+    def test_no_pytest_args_passes_none(self):
+        """Verify that when no pytest args are provided, None is passed."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock one package
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg",
+                    path=Path("/fake/pkg"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run"])
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+
+            # Verify pytest_args is None when no args provided
+            call_args = mock_run_isolated.call_args
+            assert call_args.kwargs["pytest_args"] is None
+
+    def test_pytest_args_work_with_package_filter(self):
+        """Verify pytest args work correctly with --package filter."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock two packages
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="test-pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock successful test run
+            mock_test_result = Mock()
+            mock_test_result.passed = True
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests passed"
+            mock_run_isolated.return_value = mock_test_result
+
+            result = runner.invoke(
+                main, ["run", "--package", "test-pkg-a", "--", "-k", "test_integration"]
+            )
+
+            # Should exit with code 0
+            assert result.exit_code == 0
+
+            # Verify run_tests_isolated called only once (filtered package)
+            assert mock_run_isolated.call_count == 1
+
+            # Verify pytest args were passed
+            call_args = mock_run_isolated.call_args
+            assert call_args.kwargs["pytest_args"] == ["-k", "test_integration"]
+
+    def test_pytest_args_work_with_fail_fast(self):
+        """Verify pytest args work correctly with --fail-fast."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.run_tests_isolated") as mock_run_isolated,
+        ):
+            # Mock two packages
+            mock_find.return_value = [
+                Package(
+                    name="test-pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+                Package(
+                    name="test-pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
+                ),
+            ]
+
+            # Mock first test failing
+            mock_test_result = Mock()
+            mock_test_result.passed = False
+            mock_test_result.duration = 1.0
+            mock_test_result.output = "Tests failed"
+            mock_run_isolated.return_value = mock_test_result
+
+            result = runner.invoke(main, ["run", "--fail-fast", "--", "-v"])
+
+            # Should exit with code 1 (test failed)
+            assert result.exit_code == 1
+
+            # Verify run_tests_isolated called only once (fail-fast)
+            assert mock_run_isolated.call_count == 1
+
+            # Verify pytest args were passed
+            call_args = mock_run_isolated.call_args
+            assert call_args.kwargs["pytest_args"] == ["-v"]
+
+            # Verify fail-fast message appeared
+            assert "Stopping execution due to --fail-fast" in result.output

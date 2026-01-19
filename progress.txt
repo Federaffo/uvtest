@@ -1456,3 +1456,229 @@ and will work with both isolated and sync modes.
 
 Alternatively: coverage-command could be implemented next as it's a major 
 user-facing feature, though it's more complex than pytest-passthrough.
+--------------------------------------------------------------------------------
+2026-01-19 | Task: pytest-passthrough | Status: COMPLETED
+--------------------------------------------------------------------------------
+
+TASK DESCRIPTION:
+Support passing additional arguments to pytest via -- separator
+
+PRIORITY DECISION:
+Selected pytest-passthrough as the highest priority task because:
+1. It was explicitly recommended in the previous progress entry as the next task
+2. It's a COMMONLY REQUESTED developer experience feature - developers frequently 
+   need to pass pytest-specific flags like -k (test name filtering), -x (stop 
+   on first failure), --tb=short (shorter tracebacks), -v (verbose), -s (show prints)
+3. It's a clean, well-defined task with straightforward implementation using Click
+4. It complements the existing --package filter feature for focused testing
+5. It works seamlessly with all existing features (--fail-fast, --sync, --package, -v/-vv)
+6. The coverage-command task will also need this feature, so implementing it now 
+   establishes the pattern
+7. Quick to implement - straightforward use of Click's argument with nargs=-1
+
+IMPLEMENTATION DETAILS:
+
+1. Updated src/uvtest/cli.py - run command signature:
+   - Added @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED) decorator
+   - nargs=-1 captures all remaining arguments after options/flags
+   - type=click.UNPROCESSED prevents Click from parsing these args (passed as-is to pytest)
+   - Added pytest_args parameter (tuple[str, ...]) to run() function signature
+
+2. Updated run command docstring:
+   - Added documentation explaining -- separator usage
+   - Included example: "uvtest run -- -k test_foo -x --tb=short"
+   - Help text now shows "[PYTEST_ARGS]..." in usage line
+   - Clear guidance for users on how to pass pytest-specific flags
+
+3. Modified pytest invocation in both modes:
+   - ISOLATED MODE: 
+     * Updated run_tests_isolated() call to include pytest_args parameter
+     * Converts tuple to list when pytest_args is non-empty, passes None when empty
+     * Pattern: pytest_args=list(pytest_args) if pytest_args else None
+   
+   - SYNC MODE:
+     * Updated run_tests_in_package() call to include pytest_args parameter
+     * Same conversion pattern as isolated mode
+     * Ensures consistent behavior across both execution modes
+
+4. Key design decisions:
+   - Using Click's click.UNPROCESSED type prevents Click from interpreting pytest flags
+   - Empty tuple is converted to None (cleaner API, matches existing pattern)
+   - Non-empty tuple is converted to list for runner functions
+   - Both run_tests_isolated and run_tests_in_package already support pytest_args parameter
+   - Works identically in both isolated mode (default) and sync mode
+   - Compatible with all existing flags (--package, --fail-fast, -v/-vv, --sync)
+
+5. Updated existing tests to handle new signature:
+   - Fixed 3 existing tests that were asserting on run_tests_isolated calls
+   - Added pytest_args=None to assert_called_once_with statements
+   - Tests: test_default_uses_isolated_mode, test_isolated_mode_with_empty_test_dependencies,
+     test_exact_name_match_works
+   - This ensures backward compatibility verification
+
+6. Created comprehensive unit tests in tests/test_cli.py:
+   - TestPytestPassthrough class with 6 tests:
+     
+     * test_pytest_args_passed_to_isolated_runner:
+       - Verifies pytest args are passed to run_tests_isolated in default mode
+       - Tests: uvtest run -- -k test_foo
+       - Verifies pytest_args=["-k", "test_foo"] is passed
+     
+     * test_pytest_args_passed_to_sync_runner:
+       - Verifies pytest args are passed to run_tests_in_package in sync mode
+       - Tests: uvtest run --sync -- -v -s
+       - Verifies pytest_args=["-v", "-s"] is passed in sync mode
+     
+     * test_multiple_pytest_args_passed:
+       - Verifies multiple pytest args are captured correctly
+       - Tests: uvtest run -- -x --tb=short -k test_foo
+       - Verifies pytest_args=["-x", "--tb=short", "-k", "test_foo"]
+     
+     * test_no_pytest_args_passes_none:
+       - Verifies that when no pytest args provided, None is passed
+       - Tests: uvtest run (no -- separator)
+       - Verifies pytest_args=None when no args specified
+     
+     * test_pytest_args_work_with_package_filter:
+       - Verifies pytest args work correctly with --package filter
+       - Tests: uvtest run --package test-pkg-a -- -k test_integration
+       - Verifies filtering and pytest args work together
+     
+     * test_pytest_args_work_with_fail_fast:
+       - Verifies pytest args work correctly with --fail-fast
+       - Tests: uvtest run --fail-fast -- -v
+       - Verifies fail-fast stops execution and pytest args are passed
+
+VERIFICATION:
+
+All acceptance criteria verified:
+- ✓ add support for -- separator to pass args to pytest
+  - Click argument with nargs=-1 captures all args after --
+  - Tests verify args are captured correctly
+- ✓ pass all arguments after -- to each pytest invocation
+  - Both run_tests_isolated and run_tests_in_package receive pytest_args
+  - Works in both isolated mode and sync mode
+- ✓ document this in --help output
+  - Help text shows "[PYTEST_ARGS]..." in usage line
+  - Docstring includes example: uvtest run -- -k test_foo -x --tb=short
+- ✓ verify 'uvtest run -- -k test_foo' passes -k to pytest
+  - Test verified: test_pytest_args_passed_to_isolated_runner
+  - Mocking confirms ["-k", "test_foo"] is passed to runner
+- ✓ verify 'uvtest run -- -x --tb=short' passes multiple args
+  - Test verified: test_multiple_pytest_args_passed
+  - Mocking confirms ["-x", "--tb=short", "-k", "test_foo"] is passed
+
+Testing results:
+- All 113 tests pass (107 existing + 6 new pytest passthrough tests)
+- `uv run pytest tests/ -v` shows 113 passed, 1 warning (benign)
+- Test breakdown:
+  * CLI tests: 28 passed (22 existing + 6 new)
+  * Discovery tests: 43 passed (no changes)
+  * Runner tests: 42 passed (no changes)
+
+Manual verification:
+- `uv run uvtest run --help` shows:
+  * Usage line: "uvtest run [OPTIONS] [PYTEST_ARGS]..."
+  * Documentation includes example with -- separator
+  * All options properly documented
+- Help text is clear and includes practical example
+
+FILES MODIFIED:
+- src/uvtest/cli.py (added pytest_args argument, updated docstring, modified runner calls, ~15 lines)
+- tests/test_cli.py (added TestPytestPassthrough class with 6 tests, updated 3 existing tests, ~240 lines)
+
+FILES UPDATED:
+- prd.jsonc (marked pytest-passthrough as passes: true)
+
+NOTES:
+- AGENTS.md does not exist, so no typecheck/lint requirements to run
+- All 113 tests pass with new functionality
+- The PytestCollectionWarning about TestResult class persists but is benign
+- Click's UNPROCESSED type ensures pytest flags aren't interpreted by Click
+- Works seamlessly with all existing features (no breaking changes)
+- Both isolated and sync modes support pytest passthrough identically
+- Empty args passed as None (cleaner than empty list)
+
+DEVELOPER EXPERIENCE IMPACT:
+This task significantly improves developer experience by enabling fine-grained
+test control. Common use cases now supported:
+
+1. Run specific tests by name pattern:
+   uvtest run -- -k test_integration
+
+2. Stop on first test failure within each package:
+   uvtest run -- -x
+
+3. Shorter traceback format for cleaner output:
+   uvtest run -- --tb=short
+
+4. Show print statements during tests:
+   uvtest run -- -s
+
+5. Increase pytest verbosity:
+   uvtest run -- -v
+
+6. Combine multiple flags:
+   uvtest run --package 'api-*' -- -k test_auth -v --tb=short
+
+7. Use with fail-fast for fastest feedback:
+   uvtest run --fail-fast -- -x
+
+The -- separator provides a clean, intuitive interface that matches standard
+Unix CLI conventions and pytest's own argument passing patterns.
+
+ARCHITECTURAL SIGNIFICANCE:
+This implementation follows Click best practices:
+- Uses click.argument with nargs=-1 for capturing remaining args
+- Uses click.UNPROCESSED to prevent Click from parsing pytest flags
+- Maintains separation of concerns (CLI argument parsing vs pytest execution)
+- Consistent with how other tools (docker, npm, etc.) handle argument passthrough
+
+The feature integrates cleanly with existing architecture:
+- Both isolated and sync modes support pytest_args
+- Package filtering works with pytest args
+- Fail-fast works with pytest args
+- Verbosity levels work with pytest args
+- No changes needed to runner functions (they already supported pytest_args)
+
+DESIGN DECISIONS:
+1. Used click.UNPROCESSED type to prevent Click from interpreting pytest flags
+2. Empty tuple converted to None (matches existing runner API)
+3. Non-empty tuple converted to list (matches runner function expectations)
+4. Placed argument after all options in decorator order (Click best practice)
+5. Updated docstring with example to guide users
+6. Tests use mocking to verify args are passed (no actual pytest execution)
+7. Both modes (isolated/sync) handle pytest_args identically
+8. No special handling for invalid pytest args (let pytest itself handle validation)
+9. Help text shows [PYTEST_ARGS]... to indicate optional variadic args
+10. Coverage command will use same pattern when implemented
+
+USAGE EXAMPLES:
+Basic usage:
+- Test name filtering: uvtest run -- -k test_foo
+- Stop on first failure: uvtest run -- -x
+- Verbose output: uvtest run -- -v
+- Show prints: uvtest run -- -s
+- Custom traceback: uvtest run -- --tb=short
+
+Combined with other flags:
+- Filtered packages: uvtest run --package api-server -- -k test_auth
+- With sync mode: uvtest run --sync -- -v -s
+- With fail-fast: uvtest run --fail-fast -- -x
+- Multiple packages: uvtest run -p 'core-*' -- -k integration -v
+
+Advanced combinations:
+- uvtest run --package 'api-*' --fail-fast -- -x --tb=short -k test_auth
+- uvtest run --sync -p mypackage -- -v -s --tb=line
+- uvtest run -vv -- -k 'test_user or test_auth' --tb=short
+
+NEXT RECOMMENDED TASK:
+coverage-command - Implement 'uvtest coverage' command with pytest-cov. This is
+a major user-facing feature that will also need pytest passthrough support (which
+is now implemented). It's the next most important functional feature for the tool.
+The coverage command will use the same patterns established in the run command
+(--fail-fast, --package, --sync, --) for consistency.
+
+Alternatively: summary-table could be implemented to improve output formatting
+for both run and coverage commands before implementing coverage. This would
+provide better user feedback immediately.

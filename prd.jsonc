@@ -201,7 +201,7 @@
         "verify 'uvtest run -- -k test_foo' passes -k to pytest",
         "verify 'uvtest run -- -x --tb=short' passes multiple args"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use click.argument with nargs=-1 to capture remaining args."
     },
     {
