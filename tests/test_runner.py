@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from uvtest.runner import TestResult, run_tests_in_package
+from uvtest.runner import SyncResult, TestResult, run_tests_in_package, sync_package
 
 
 class TestTestResult:
@@ -255,3 +255,161 @@ class TestRunTestsInPackage:
             result = run_tests_in_package(tmp_path, "test-pkg")
 
             assert result.output == "error message"
+
+
+class TestSyncResult:
+    """Tests for SyncResult dataclass."""
+
+    def test_syncresult_fields(self):
+        result = SyncResult(
+            package_name="my-package",
+            success=True,
+            output="Synced successfully",
+            return_code=0,
+        )
+        assert result.package_name == "my-package"
+        assert result.success is True
+        assert result.output == "Synced successfully"
+        assert result.return_code == 0
+
+    def test_syncresult_failure(self):
+        result = SyncResult(
+            package_name="failing-pkg",
+            success=False,
+            output="Sync failed",
+            return_code=1,
+        )
+        assert result.success is False
+        assert result.return_code == 1
+
+
+class TestSyncPackage:
+    """Tests for sync_package function."""
+
+    def test_successful_sync(self, tmp_path: Path):
+        """Test successful uv sync execution."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Resolved 5 packages",
+                stderr="",
+            )
+
+            result = sync_package(tmp_path, "test-pkg")
+
+            assert result.success is True
+            assert result.package_name == "test-pkg"
+            assert result.return_code == 0
+            assert "Resolved" in result.output
+
+            # Verify correct command was called with --quiet
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert call_args.kwargs["cwd"] == tmp_path
+            assert call_args.args[0] == ["uv", "sync", "--quiet"]
+
+    def test_sync_with_verbose(self, tmp_path: Path):
+        """Test sync in verbose mode (no --quiet flag)."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Resolved 5 packages in 1.2s",
+                stderr="",
+            )
+
+            result = sync_package(tmp_path, "test-pkg", verbose=True)
+
+            assert result.success is True
+
+            # Verify --quiet is NOT in command
+            call_args = mock_run.call_args
+            assert call_args.args[0] == ["uv", "sync"]
+
+    def test_failed_sync(self, tmp_path: Path):
+        """Test failed uv sync execution."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="error: failed to resolve dependencies",
+            )
+
+            result = sync_package(tmp_path, "failing-pkg")
+
+            assert result.success is False
+            assert result.return_code == 1
+            assert "error" in result.output.lower()
+
+    def test_sync_handles_timeout(self, tmp_path: Path):
+        """Test that sync timeout is handled gracefully."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="uv sync", timeout=300)
+
+            result = sync_package(tmp_path, "slow-pkg")
+
+            assert result.success is False
+            assert result.return_code == -1
+            assert "timed out" in result.output.lower()
+
+    def test_sync_handles_uv_not_found(self, tmp_path: Path):
+        """Test handling when uv command is not found."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("uv not found")
+
+            result = sync_package(tmp_path, "test-pkg")
+
+            assert result.success is False
+            assert result.return_code == -1
+            assert "uv" in result.output.lower()
+
+    def test_sync_handles_os_error(self, tmp_path: Path):
+        """Test handling of other OS errors during sync."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.side_effect = OSError("Permission denied")
+
+            result = sync_package(tmp_path, "test-pkg")
+
+            assert result.success is False
+            assert result.return_code == -1
+            assert "error" in result.output.lower()
+
+    def test_sync_combines_stdout_and_stderr(self, tmp_path: Path):
+        """Test that both stdout and stderr are captured."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="sync output",
+                stderr="some warnings",
+            )
+
+            result = sync_package(tmp_path, "test-pkg")
+
+            assert "sync output" in result.output
+            assert "some warnings" in result.output
+
+    def test_sync_timeout_is_300_seconds(self, tmp_path: Path):
+        """Test that sync timeout is 5 minutes (300 seconds)."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="synced",
+                stderr="",
+            )
+
+            sync_package(tmp_path, "test-pkg")
+
+            call_args = mock_run.call_args
+            assert call_args.kwargs["timeout"] == 300
+
+    def test_sync_strips_output(self, tmp_path: Path):
+        """Test that output is stripped of whitespace."""
+        with patch("uvtest.runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="  synced  \n\n",
+                stderr="",
+            )
+
+            result = sync_package(tmp_path, "test-pkg")
+
+            assert result.output == "synced"

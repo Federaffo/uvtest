@@ -18,6 +18,79 @@ class TestResult:
     return_code: int
 
 
+@dataclass
+class SyncResult:
+    """Result from syncing a package."""
+
+    package_name: str
+    success: bool
+    output: str
+    return_code: int
+
+
+def sync_package(
+    package_path: Path, package_name: str, verbose: bool = False
+) -> SyncResult:
+    """Run 'uv sync' in a package directory.
+
+    Args:
+        package_path: Path to the package directory.
+        package_name: Name of the package (for reporting).
+        verbose: If True, show sync output. If False, use --quiet flag.
+
+    Returns:
+        SyncResult with success status, output, and return_code.
+    """
+    cmd = ["uv", "sync"]
+    if not verbose:
+        cmd.append("--quiet")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=package_path,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout for sync
+        )
+
+        # Combine stdout and stderr for full output
+        output = result.stdout
+        if result.stderr:
+            output = output + "\n" + result.stderr if output else result.stderr
+
+        return SyncResult(
+            package_name=package_name,
+            success=result.returncode == 0,
+            output=output.strip(),
+            return_code=result.returncode,
+        )
+
+    except subprocess.TimeoutExpired:
+        return SyncResult(
+            package_name=package_name,
+            success=False,
+            output="Sync timed out after 300 seconds",
+            return_code=-1,
+        )
+
+    except FileNotFoundError:
+        return SyncResult(
+            package_name=package_name,
+            success=False,
+            output="Error: 'uv' command not found. Please ensure UV is installed.",
+            return_code=-1,
+        )
+
+    except OSError as e:
+        return SyncResult(
+            package_name=package_name,
+            success=False,
+            output=f"Error running sync: {e}",
+            return_code=-1,
+        )
+
+
 def run_tests_in_package(
     package_path: Path,
     package_name: str,

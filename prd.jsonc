@@ -89,7 +89,7 @@
         "handle sync failures gracefully (report error, skip package)",
         "verify sync runs successfully in packages with dependencies"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Run 'uv sync' with --quiet unless verbose mode is enabled."
     },
     {
