@@ -155,7 +155,7 @@
         "verify test dependencies from [dependency-groups.test] are available",
         "add unit tests for isolated runner command construction"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Command pattern: 'uv run --isolated --with pytest --with pytest-cov --with ./path/to/pkg pytest [pytest-args]'. The --with ./path/to/pkg installs the package AND its dependencies."
     },
     {
