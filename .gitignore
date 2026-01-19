@@ -79,3 +79,6 @@ dmypy.json
 
 prd.jsonc
 progress.txt
+
+# Auto-generated version file
+src/uvtest/_version.py
