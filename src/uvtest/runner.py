@@ -31,16 +31,6 @@ class SyncResult:
 def sync_package(
     package_path: Path, package_name: str, verbose: bool = False
 ) -> SyncResult:
-    """Run 'uv sync' in a package directory.
-
-    Args:
-        package_path: Path to the package directory.
-        package_name: Name of the package (for reporting).
-        verbose: If True, show sync output. If False, use --quiet flag.
-
-    Returns:
-        SyncResult with success status, output, and return_code.
-    """
     cmd = ["uv", "sync"]
     if not verbose:
         cmd.append("--quiet")
@@ -86,7 +76,7 @@ def sync_package(
         return SyncResult(
             package_name=package_name,
             success=False,
-            output=f"Error running sync: {e}",
+            output=f"Error during sync: {e}",
             return_code=-1,
         )
 
@@ -97,17 +87,6 @@ def run_tests_in_package(
     pytest_args: Optional[list[str]] = None,
     timeout: int = 600,
 ) -> TestResult:
-    """Run pytest in a package directory using 'uv run pytest'.
-
-    Args:
-        package_path: Path to the package directory.
-        package_name: Name of the package (for reporting).
-        pytest_args: Additional arguments to pass to pytest.
-        timeout: Maximum time in seconds to wait for tests (default: 10 minutes).
-
-    Returns:
-        TestResult with package_name, passed status, duration, output, and return_code.
-    """
     if pytest_args is None:
         pytest_args = []
 
@@ -176,22 +155,6 @@ def run_tests_isolated(
     pytest_args: Optional[list[str]] = None,
     timeout: int = 600,
 ) -> TestResult:
-    """Run pytest in isolated mode using 'uv run --isolated --with'.
-
-    Creates a fresh ephemeral environment for each test run, ensuring hermetic
-    execution. The package and its dependencies from pyproject.toml are installed
-    along with test dependencies from [dependency-groups.test].
-
-    Args:
-        package_path: Path to the package directory.
-        package_name: Name of the package (for reporting).
-        test_dependencies: List of test dependencies from [dependency-groups.test].
-        pytest_args: Additional arguments to pass to pytest.
-        timeout: Maximum time in seconds to wait for tests (default: 10 minutes).
-
-    Returns:
-        TestResult with package_name, passed status, duration, output, and return_code.
-    """
     if pytest_args is None:
         pytest_args = []
 
@@ -225,6 +188,19 @@ def run_tests_isolated(
         output = result.stdout
         if result.stderr:
             output = output + "\n" + result.stderr if output else result.stderr
+
+        # Check for common dependency resolution errors in isolated mode
+        if result.returncode != 0 and (
+            "No solution found" in output
+            or "Unable to find" in output
+            or "could not find" in output.lower()
+        ):
+            output += (
+                "\n\nHint: In isolated mode, dependency resolution failures often indicate:\n"
+                "  - Missing or incorrect dependencies in pyproject.toml\n"
+                "  - Missing test dependencies in [dependency-groups.test]\n"
+                "  - Try adding missing packages to [dependency-groups.test] or use --sync mode"
+            )
 
         return TestResult(
             package_name=package_name,

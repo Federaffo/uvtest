@@ -11,6 +11,61 @@ from uvtest.cli import main
 from uvtest.discovery import Package
 
 
+class TestErrorHandling:
+    """Tests for error handling and user-friendly messages."""
+
+    def test_scan_exits_1_when_no_root_pyproject(self):
+        """Verify scan shows helpful error when no root pyproject.toml."""
+        runner = CliRunner()
+
+        with patch("pathlib.Path.exists") as mock_exists:
+            # Root pyproject.toml doesn't exist
+            mock_exists.return_value = False
+
+            result = runner.invoke(main, ["scan"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+
+            # Should show helpful error message
+            assert "No pyproject.toml found in current directory" in result.output
+            assert "UV monorepo" in result.output
+            assert "root of your UV monorepo" in result.output
+
+    def test_run_exits_1_when_no_root_pyproject(self):
+        """Verify run shows helpful error when no root pyproject.toml."""
+        runner = CliRunner()
+
+        with patch("pathlib.Path.exists") as mock_exists:
+            # Root pyproject.toml doesn't exist
+            mock_exists.return_value = False
+
+            result = runner.invoke(main, ["run"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+
+            # Should show helpful error message
+            assert "No pyproject.toml found in current directory" in result.output
+            assert "UV monorepo" in result.output
+
+    def test_coverage_exits_1_when_no_root_pyproject(self):
+        """Verify coverage shows helpful error when no root pyproject.toml."""
+        runner = CliRunner()
+
+        with patch("pathlib.Path.exists") as mock_exists:
+            # Root pyproject.toml doesn't exist
+            mock_exists.return_value = False
+
+            result = runner.invoke(main, ["coverage"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+
+            # Should show helpful error message
+            assert "No pyproject.toml found in current directory" in result.output
+
+
 class TestScanCommandExitCodes:
     """Test exit codes for the scan command."""
 
@@ -1235,8 +1290,9 @@ class TestCoverageCommand:
 
             # Mock the path.exists() to simulate packagename directory exists
             with patch("pathlib.Path.exists") as mock_exists:
-                # First call checks src/test-pkg (False), second checks test-pkg (True)
-                mock_exists.side_effect = [False, True]
+                # First call checks root pyproject.toml (True)
+                # Second call checks src/test-pkg (False), third checks test-pkg (True)
+                mock_exists.side_effect = [True, False, True]
 
                 # Mock successful test run
                 mock_test_result = Mock()
@@ -1281,7 +1337,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False  # No src directory
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock successful test run
                 mock_test_result = Mock()
@@ -1321,7 +1378,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock successful test run
                 mock_test_result = Mock()
@@ -1361,7 +1419,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock successful test run
                 mock_test_result = Mock()
@@ -1409,7 +1468,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock successful test run
                 mock_test_result = Mock()
@@ -1455,7 +1515,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock failed test for first package
                 mock_test_result = Mock()
@@ -1495,7 +1556,8 @@ class TestCoverageCommand:
             ]
 
             with patch("pathlib.Path.exists") as mock_exists:
-                mock_exists.return_value = False
+                # First call checks root pyproject.toml (True), rest check src dirs (False)
+                mock_exists.side_effect = [True, False, False, False]
 
                 # Mock successful test run
                 mock_test_result = Mock()

@@ -14,12 +14,6 @@ from uvtest.runner import run_tests_in_package, run_tests_isolated, sync_package
 def print_summary_table(
     results: list[tuple[str, bool, float]], use_color: bool
 ) -> None:
-    """Print a formatted summary table of test results.
-
-    Args:
-        results: List of tuples (package_name, passed, duration)
-        use_color: Whether to use colored output
-    """
     if not results:
         return
 
@@ -106,6 +100,21 @@ def scan(ctx: click.Context) -> None:
     are silently skipped.
     """
     verbose = ctx.obj.get("verbose", 0)
+    use_color = sys.stdout.isatty()
+
+    # Check if we're in a UV monorepo (has root pyproject.toml)
+    root_pyproject = Path.cwd() / "pyproject.toml"
+    if not root_pyproject.exists():
+        error_msg = (
+            "Error: No pyproject.toml found in current directory.\n"
+            "uvtest requires a UV monorepo structure with a root pyproject.toml.\n"
+            "Make sure you're running uvtest from the root of your UV monorepo."
+        )
+        if use_color:
+            click.echo(click.style(error_msg, fg="red"))
+        else:
+            click.echo(error_msg)
+        sys.exit(1)
 
     # Discover all packages from current directory
     packages = find_packages(Path.cwd())
@@ -194,6 +203,20 @@ def run(
     """
     verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
+
+    # Check if we're in a UV monorepo (has root pyproject.toml)
+    root_pyproject = Path.cwd() / "pyproject.toml"
+    if not root_pyproject.exists():
+        error_msg = (
+            "Error: No pyproject.toml found in current directory.\n"
+            "uvtest requires a UV monorepo structure with a root pyproject.toml.\n"
+            "Make sure you're running uvtest from the root of your UV monorepo."
+        )
+        if use_color:
+            click.echo(click.style(error_msg, fg="red"))
+        else:
+            click.echo(error_msg)
+        sys.exit(1)
 
     # Discover all packages with tests
     packages = find_packages(Path.cwd())
@@ -366,6 +389,20 @@ def coverage(
     """
     verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
+
+    # Check if we're in a UV monorepo (has root pyproject.toml)
+    root_pyproject = Path.cwd() / "pyproject.toml"
+    if not root_pyproject.exists():
+        error_msg = (
+            "Error: No pyproject.toml found in current directory.\n"
+            "uvtest requires a UV monorepo structure with a root pyproject.toml.\n"
+            "Make sure you're running uvtest from the root of your UV monorepo."
+        )
+        if use_color:
+            click.echo(click.style(error_msg, fg="red"))
+        else:
+            click.echo(error_msg)
+        sys.exit(1)
 
     # Discover all packages with tests
     packages = find_packages(Path.cwd())
