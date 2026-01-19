@@ -9,6 +9,7 @@ from uvtest.discovery import (
     _parse_package_name,
     _has_test_directory,
     _should_skip_dir,
+    _parse_test_dependencies,
     SKIP_DIRS,
 )
 
@@ -267,3 +268,144 @@ class TestFindPackages:
         pkg_map = {p.name: p for p in packages}
         assert pkg_map["with-tests"].has_tests is True
         assert pkg_map["without-tests"].has_tests is False
+
+
+class TestParseTestDependencies:
+    """Tests for _parse_test_dependencies function."""
+
+    def test_parses_valid_dependency_groups(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n'
+            "[dependency-groups]\n"
+            'test = ["pytest>=7.0", "pytest-cov>=4.0"]'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == ["pytest>=7.0", "pytest-cov>=4.0"]
+
+    def test_returns_empty_list_for_missing_dependency_groups(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "test-pkg"')
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_returns_empty_list_for_missing_test_group(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n'
+            "[dependency-groups]\n"
+            'dev = ["black", "ruff"]'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_returns_empty_list_for_invalid_toml(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("this is [[[ not valid toml")
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_returns_empty_list_for_missing_file(self, tmp_path: Path):
+        pyproject = tmp_path / "nonexistent.toml"
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_handles_non_dict_dependency_groups(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\ndependency-groups = "not-a-dict"'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_handles_non_list_test_group(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n[dependency-groups]\ntest = "not-a-list"'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_filters_non_string_entries(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n'
+            "[dependency-groups]\n"
+            'test = ["pytest>=7.0", 123, "pytest-cov>=4.0", true]'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        # Should filter out non-string entries (123, true)
+        assert deps == ["pytest>=7.0", "pytest-cov>=4.0"]
+
+    def test_handles_empty_test_group(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n[dependency-groups]\ntest = []'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == []
+
+    def test_parses_single_dependency(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "test-pkg"\n\n[dependency-groups]\ntest = ["pytest"]'
+        )
+        deps = _parse_test_dependencies(pyproject)
+        assert deps == ["pytest"]
+
+
+class TestFindPackagesWithDependencies:
+    """Tests for find_packages with dependency-groups parsing."""
+
+    def test_includes_test_dependencies_in_package(self, tmp_path: Path):
+        pkg_dir = tmp_path / "my-package"
+        pkg_dir.mkdir()
+        (pkg_dir / "pyproject.toml").write_text(
+            '[project]\nname = "my-package"\n\n'
+            "[dependency-groups]\n"
+            'test = ["pytest>=7.0", "pytest-cov>=4.0"]'
+        )
+
+        packages = find_packages(tmp_path)
+
+        assert len(packages) == 1
+        assert packages[0].test_dependencies == ["pytest>=7.0", "pytest-cov>=4.0"]
+
+    def test_includes_empty_list_when_no_dependency_groups(self, tmp_path: Path):
+        pkg_dir = tmp_path / "my-package"
+        pkg_dir.mkdir()
+        (pkg_dir / "pyproject.toml").write_text('[project]\nname = "my-package"')
+
+        packages = find_packages(tmp_path)
+
+        assert len(packages) == 1
+        assert packages[0].test_dependencies == []
+
+    def test_multiple_packages_with_different_dependencies(self, tmp_path: Path):
+        # Package 1 with dependencies
+        pkg1 = tmp_path / "pkg1"
+        pkg1.mkdir()
+        (pkg1 / "pyproject.toml").write_text(
+            '[project]\nname = "pkg1"\n\n'
+            "[dependency-groups]\n"
+            'test = ["pytest", "requests"]'
+        )
+
+        # Package 2 without dependencies
+        pkg2 = tmp_path / "pkg2"
+        pkg2.mkdir()
+        (pkg2 / "pyproject.toml").write_text('[project]\nname = "pkg2"')
+
+        # Package 3 with different dependencies
+        pkg3 = tmp_path / "pkg3"
+        pkg3.mkdir()
+        (pkg3 / "pyproject.toml").write_text(
+            '[project]\nname = "pkg3"\n\n[dependency-groups]\ntest = ["pytest-asyncio"]'
+        )
+
+        packages = find_packages(tmp_path)
+
+        pkg_map = {p.name: p for p in packages}
+        assert pkg_map["pkg1"].test_dependencies == ["pytest", "requests"]
+        assert pkg_map["pkg2"].test_dependencies == []
+        assert pkg_map["pkg3"].test_dependencies == ["pytest-asyncio"]

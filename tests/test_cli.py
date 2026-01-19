@@ -40,6 +40,7 @@ class TestScanCommandExitCodes:
                     path=Path("/fake/pkg"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
                 )
             ]
 
@@ -61,6 +62,7 @@ class TestScanCommandExitCodes:
                     path=Path("/fake/pkg"),
                     has_tests=False,
                     pyproject_path=Path("/fake/pkg/pyproject.toml"),
+                    test_dependencies=[],
                 )
             ]
 
@@ -104,12 +106,14 @@ class TestRunCommandExitCodes:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-b",
                     path=Path("/fake/pkg-b"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -147,12 +151,14 @@ class TestRunCommandExitCodes:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-b",
                     path=Path("/fake/pkg-b"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -195,6 +201,7 @@ class TestRunCommandExitCodes:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -226,6 +233,7 @@ class TestRunCommandExitCodes:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -267,18 +275,21 @@ class TestFailFastOption:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-b",
                     path=Path("/fake/pkg-b"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-c",
                     path=Path("/fake/pkg-c"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-c/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -320,18 +331,21 @@ class TestFailFastOption:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-b",
                     path=Path("/fake/pkg-b"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-c",
                     path=Path("/fake/pkg-c"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-c/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 
@@ -383,12 +397,14 @@ class TestFailFastOption:
                     path=Path("/fake/pkg-a"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                    test_dependencies=[],
                 ),
                 Package(
                     name="pkg-b",
                     path=Path("/fake/pkg-b"),
                     has_tests=True,
                     pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                    test_dependencies=[],
                 ),
             ]
 

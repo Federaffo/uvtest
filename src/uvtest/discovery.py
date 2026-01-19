@@ -35,6 +35,7 @@ class Package:
     path: Path
     has_tests: bool
     pyproject_path: Path
+    test_dependencies: list[str]
 
 
 def _parse_package_name(pyproject_path: Path) -> Optional[str]:
@@ -53,6 +54,34 @@ def _parse_package_name(pyproject_path: Path) -> Optional[str]:
 def _has_test_directory(package_path: Path) -> bool:
     """Check if package has a tests/ or test/ directory."""
     return (package_path / "tests").is_dir() or (package_path / "test").is_dir()
+
+
+def _parse_test_dependencies(pyproject_path: Path) -> list[str]:
+    """Extract test dependencies from [dependency-groups.test] section.
+
+    Returns an empty list if the file cannot be parsed, doesn't have the section,
+    or if the section is malformed.
+    """
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+
+        # Get dependency-groups.test section
+        dependency_groups = data.get("dependency-groups", {})
+        if not isinstance(dependency_groups, dict):
+            return []
+
+        test_deps = dependency_groups.get("test", [])
+
+        # Ensure it's a list of strings
+        if not isinstance(test_deps, list):
+            return []
+
+        # Filter to only strings (ignore malformed entries)
+        return [dep for dep in test_deps if isinstance(dep, str)]
+
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
 
 
 def _should_skip_dir(dirname: str) -> bool:
@@ -107,6 +136,7 @@ def find_packages(root: Optional[Path] = None) -> list[Package]:
                         path=entry,
                         has_tests=_has_test_directory(entry),
                         pyproject_path=pyproject_path,
+                        test_dependencies=_parse_test_dependencies(pyproject_path),
                     )
                 )
 

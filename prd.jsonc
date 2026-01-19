@@ -1,5 +1,5 @@
 {
-  "description": "uvtest - A CLI tool to run pytest tests across all packages in a UV monorepo. Supports scanning packages, running tests with verbose output, coverage reports, and package filtering. Distributed via 'uv tool install'.",
+  "description": "uvtest - A CLI tool to run pytest tests across all packages in a UV monorepo. Supports scanning packages, running tests with verbose output, coverage reports, and package filtering. Distributed via 'uv tool install'. Uses isolated ephemeral environments by default for hermetic CI runs, with optional --sync mode for faster local development.",
   "items": [
     {
       "id": "project-setup",
@@ -125,6 +125,56 @@
       "notes": "Default behavior is to run all packages and report failures at end."
     },
     {
+      "id": "dependency-groups-parsing",
+      "category": "functional",
+      "description": "Add support for parsing [dependency-groups] from package pyproject.toml files",
+      "steps": [
+        "extend discovery.py to parse [dependency-groups.test] from pyproject.toml",
+        "add test_dependencies field to Package dataclass (list of strings)",
+        "handle missing [dependency-groups] section gracefully (return empty list)",
+        "handle invalid/malformed dependency-groups (log warning, return empty list)",
+        "verify parsing extracts all dependencies from [dependency-groups.test]",
+        "verify packages without [dependency-groups.test] get empty list",
+        "add unit tests for dependency-groups parsing"
+      ],
+      "passes": true,
+      "notes": "Dependency groups are specified in pyproject.toml as [dependency-groups.test] = ['pytest', 'pytest-cov', etc.]. Only parse the 'test' group for now."
+    },
+    {
+      "id": "isolated-runner",
+      "category": "functional",
+      "description": "Implement isolated test runner using 'uv run --isolated --with' for hermetic test execution",
+      "steps": [
+        "add run_tests_isolated() function to runner.py",
+        "build command: 'uv run --isolated --with pytest --with ./pkg-path pytest'",
+        "add --with flags for each dependency from [dependency-groups.test]",
+        "pass additional pytest args after the pytest command",
+        "capture stdout/stderr and return TestResult (same as existing runner)",
+        "verify isolated runner creates fresh ephemeral environment each run",
+        "verify package dependencies are installed from its pyproject.toml",
+        "verify test dependencies from [dependency-groups.test] are available",
+        "add unit tests for isolated runner command construction"
+      ],
+      "passes": false,
+      "notes": "Command pattern: 'uv run --isolated --with pytest --with pytest-cov --with ./path/to/pkg pytest [pytest-args]'. The --with ./path/to/pkg installs the package AND its dependencies."
+    },
+    {
+      "id": "sync-mode-flag",
+      "category": "functional",
+      "description": "Add --sync flag to use cached venv mode instead of isolated mode",
+      "steps": [
+        "add --sync flag to 'run' and 'coverage' commands",
+        "when --sync is set: use existing uv sync + uv run pytest behavior",
+        "when --sync is NOT set (default): use new isolated runner",
+        "update CLI help to explain the difference between modes",
+        "verify 'uvtest run' uses isolated mode by default",
+        "verify 'uvtest run --sync' runs uv sync first then pytest",
+        "verify --sync mode reuses cached .venv for faster repeated runs"
+      ],
+      "passes": false,
+      "notes": "Isolated mode (default) is better for CI - hermetic and no cache pollution. Sync mode is better for local dev - faster repeated runs with cached venv."
+    },
+    {
       "id": "package-filter",
       "category": "functional",
       "description": "Add --package flag to filter which packages to test",
@@ -163,12 +213,12 @@
         "run pytest with --cov flags for each package",
         "configure coverage to measure the package's own source code",
         "show coverage percentage for each package in terminal",
-        "support same flags as 'run' (--fail-fast, --package, -v, --)",
+        "support same flags as 'run' (--fail-fast, --package, --sync, -v, --)",
         "verify coverage report shows in terminal for each package",
         "verify coverage measures the correct source directory per package"
       ],
       "passes": false,
-      "notes": "Use pytest-cov: 'pytest --cov=src/packagename --cov-report=term'. Determine source dir from package structure."
+      "notes": "Use pytest-cov: 'pytest --cov=src/packagename --cov-report=term'. Determine source dir from package structure. In isolated mode, include pytest-cov in --with flags."
     },
     {
       "id": "summary-table",
@@ -226,13 +276,13 @@
         "handle missing pyproject.toml in current directory gracefully",
         "handle packages with invalid pyproject.toml (show warning, skip)",
         "handle pytest not being installed in a package",
-        "handle uv sync failures (show error, continue or fail based on context)",
+        "handle uv run --isolated failures (show error, continue or fail based on context)",
         "show clear error messages that suggest solutions",
         "verify running in empty directory shows helpful error",
         "verify corrupted pyproject.toml doesn't crash the tool"
       ],
       "passes": false,
-      "notes": "Catch specific exceptions and provide actionable error messages."
+      "notes": "Catch specific exceptions and provide actionable error messages. In isolated mode, dependency resolution failures should suggest checking pyproject.toml deps."
     },
     {
       "id": "integration-tests",
@@ -241,8 +291,10 @@
       "steps": [
         "create tests/fixtures/ with mock monorepo structure",
         "mock repo has 3 packages: one passing, one failing, one without tests",
+        "at least one package should have [dependency-groups.test] defined",
         "test scan command lists correct packages",
-        "test run command executes tests in correct packages",
+        "test run command executes tests in correct packages (isolated mode)",
+        "test run --sync command executes tests using sync mode",
         "test coverage command generates coverage output",
         "test --package filter works correctly",
         "test --fail-fast stops after first failure",
@@ -259,13 +311,14 @@
         "add descriptive help text to main CLI group",
         "add help text to each subcommand (scan, run, coverage)",
         "add help text to all flags and options",
+        "document the difference between isolated mode (default) and --sync mode",
         "include usage examples in command help",
         "verify 'uvtest --help' shows clear usage information",
         "verify 'uvtest run --help' shows all options with descriptions",
         "verify 'uvtest coverage --help' explains coverage behavior"
       ],
       "passes": false,
-      "notes": "Good CLI help is essential - users should understand the tool without external docs."
+      "notes": "Good CLI help is essential - users should understand the tool without external docs. Explain when to use --sync vs default isolated mode."
     }
   ]
 }
