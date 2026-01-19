@@ -14,14 +14,13 @@ A CLI tool to run pytest tests across all packages in a UV monorepo.
 ## Installation
 
 ```bash
-uv tool install uvtest
+uv tool install uvtest-monorepo
 ```
 
 Or run directly:
 
 ```bash
-uv add uvtest
-uv run uvtest
+uv add uvtest-monorepo
 ```
 
 ## Usage
