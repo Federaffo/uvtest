@@ -69,14 +69,7 @@ def print_summary_table(
 
 @click.group()
 @click.version_option(version=__version__, prog_name="uvtest")
-@click.option(
-    "-v",
-    "--verbose",
-    count=True,
-    help="Increase verbosity. Use -v for verbose, -vv for very verbose.",
-)
-@click.pass_context
-def main(ctx: click.Context, verbose: int) -> None:
+def main() -> None:
     """uvtest - Run pytest tests across all packages in a UV monorepo.
 
     A CLI tool to discover and run pytest tests across all packages in a UV
@@ -85,21 +78,17 @@ def main(ctx: click.Context, verbose: int) -> None:
 
     Use 'uvtest COMMAND --help' for more information on a specific command.
     """
-    # Ensure ctx.obj exists and store verbose level for subcommands
-    ctx.ensure_object(dict)
-    ctx.obj["verbose"] = verbose
+    pass
 
 
 @main.command()
-@click.pass_context
-def scan(ctx: click.Context) -> None:
+def scan() -> None:
     """Scan and list all packages with tests in the monorepo.
 
     Discovers all packages (subdirectories with pyproject.toml) and lists
     those that have a tests/ or test/ directory. Packages without tests
     are silently skipped.
     """
-    verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
 
     # Check if we're in a UV monorepo (has root pyproject.toml)
@@ -157,6 +146,12 @@ def scan(ctx: click.Context) -> None:
 
 @main.command()
 @click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity. Use -v for verbose, -vv for very verbose.",
+)
+@click.option(
     "--fail-fast",
     is_flag=True,
     default=False,
@@ -178,9 +173,8 @@ def scan(ctx: click.Context) -> None:
     "Can be specified multiple times to test multiple packages.",
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
 def run(
-    ctx: click.Context,
+    verbose: int,
     fail_fast: bool,
     sync: bool,
     package: tuple[str, ...],
@@ -201,7 +195,6 @@ def run(
     Additional pytest arguments can be passed after -- separator.
     Example: uvtest run -- -k test_foo -x --tb=short
     """
-    verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
 
     # Check if we're in a UV monorepo (has root pyproject.toml)
@@ -340,6 +333,12 @@ def run(
 
 @main.command()
 @click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity. Use -v for verbose, -vv for very verbose.",
+)
+@click.option(
     "--fail-fast",
     is_flag=True,
     default=False,
@@ -361,9 +360,8 @@ def run(
     "Can be specified multiple times to test multiple packages.",
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
 def coverage(
-    ctx: click.Context,
+    verbose: int,
     fail_fast: bool,
     sync: bool,
     package: tuple[str, ...],
@@ -387,7 +385,6 @@ def coverage(
     Additional pytest arguments can be passed after -- separator.
     Example: uvtest coverage -- -k test_foo --tb=short
     """
-    verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
 
     # Check if we're in a UV monorepo (has root pyproject.toml)
