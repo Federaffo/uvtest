@@ -459,3 +459,110 @@ NEXT RECOMMENDED TASK:
 run-command - now that sync_package() is available, we can implement the main
 'uvtest run' command that discovers packages, syncs them, and runs their tests.
 This is the core user-facing functionality of the tool.
+
+--------------------------------------------------------------------------------
+2026-01-19 | Task: run-command | Status: COMPLETED
+--------------------------------------------------------------------------------
+
+TASK DESCRIPTION:
+Implement 'uvtest run' command to execute tests across packages
+
+PRIORITY DECISION:
+Selected run-command because:
+1. It was explicitly recommended in the previous progress entry
+2. It's the core user-facing functionality that ties together all completed 
+   foundational work (discovery, runner, sync)
+3. It blocks several other tasks (fail-fast-option, package-filter, 
+   pytest-passthrough) that extend the run command
+4. It's necessary before integration testing can be properly done
+5. All dependencies (package-discovery, test-runner-core, uv-sync-integration)
+   are complete
+
+IMPLEMENTATION DETAILS:
+
+1. Updated src/uvtest/cli.py with:
+   - Added import for run_tests_in_package and sync_package from uvtest.runner
+   - Implemented @main.command() decorated 'run' function
+   - Uses @click.pass_context to access verbose level from parent command
+
+2. Run command implementation:
+   - Discovers all packages using find_packages(Path.cwd())
+   - Filters to only packages where has_tests is True
+   - Shows "No packages with tests found." if none exist
+   - For each package with tests:
+     * Calls sync_package() first to install dependencies
+     * If sync fails: displays error message, skips package, records failure
+     * If sync succeeds: calls run_tests_in_package()
+     * Tracks results: (package_name, passed, duration)
+   - Results display varies by verbosity level
+
+3. Verbosity level handling:
+   - verbose == 0 (default - minimal output):
+     * Silent during execution
+     * After all tests: shows "Test Results:" followed by each package with 
+       ✓/✗ status icon
+     * Green ✓ for pass, red ✗ for fail (when TTY)
+   
+   - verbose >= 1 (-v flag):
+     * Shows "Testing {package_name}..." before each package
+     * Shows "{package_name}: ✓ PASSED" or "{package_name}: ✗ FAILED" after
+     * Package names styled in cyan/bold when TTY
+   
+   - verbose >= 2 (-vv flag):
+     * All of the above, plus:
+     * Shows full sync output if any
+     * Shows complete pytest output for each package
+     * Passes verbose=True to sync_package() (disables --quiet flag)
+
+4. Key design decisions:
+   - TTY detection using sys.stdout.isatty() for automatic color handling
+   - Used click.style() for coloring (green for pass, red for fail, cyan for names)
+   - Sync failures are handled gracefully - error shown, package skipped, 
+     failure recorded
+   - Results are accumulated in a list for final display in minimal mode
+   - Sequential execution (no parallelism) per PRD requirements
+   - Packages without tests are filtered out silently (early filtering)
+
+VERIFICATION:
+
+All acceptance criteria verified:
+- ✓ add 'run' subcommand to CLI
+  - `uv run uvtest --help` shows "run" in Commands list
+- ✓ discover all packages with tests
+  - Uses find_packages() and filters has_tests
+- ✓ run uv sync then pytest in each package sequentially
+  - Calls sync_package() then run_tests_in_package() for each
+- ✓ show progress: which package is being tested
+  - Shows "Testing {package}..." in verbose mode (-v or -vv)
+- ✓ with -v: show package names as they complete
+  - Shows "{package}: PASSED/FAILED" after each test run
+- ✓ with -vv: show full pytest output for each package
+  - Displays complete test_result.output
+- ✓ verify tests run in each package that has a test directory
+  - Filters packages where has_tests is True
+- ✓ verify packages without tests are skipped silently
+  - Early filtering removes packages without tests
+- ✓ Default output should be minimal - just package names and pass/fail status
+  - verbose==0 shows only final summary with ✓/✗ icons
+
+Manual testing:
+- `uv run uvtest run --help` shows comprehensive help text
+- `uv run uvtest run` shows minimal output (test results summary)
+- All 58 existing unit tests still pass
+
+FILES MODIFIED:
+- src/uvtest/cli.py (added run command, +79 lines)
+
+NOTES:
+- AGENTS.md does not exist, so no typecheck/lint requirements to run
+- No integration tests yet (covered by integration-tests task)
+- The run command is ready to be extended with --fail-fast, --package, and -- 
+  flags in subsequent tasks
+- Sync failures are gracefully handled and don't crash the tool
+- All 58 tests still pass with new functionality
+- PytestCollectionWarning about TestResult class persists but is benign
+
+NEXT RECOMMENDED TASK:
+fail-fast-option - now that run command is complete, add the --fail-fast flag
+to allow stopping execution on first failure. This is a natural extension of
+the run command and is a commonly requested CI/CD feature.

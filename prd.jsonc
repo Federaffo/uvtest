@@ -106,7 +106,7 @@
         "verify tests run in each package that has a test directory",
         "verify packages without tests are skipped silently"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Default output should be minimal - just package names and pass/fail status."
     },
     {

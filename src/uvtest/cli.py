@@ -7,6 +7,7 @@ import click
 
 from uvtest import __version__
 from uvtest.discovery import find_packages
+from uvtest.runner import run_tests_in_package, sync_package
 
 
 @click.group()
@@ -80,6 +81,89 @@ def scan(ctx: click.Context) -> None:
         click.echo(click.style(count_msg, fg="green"))
     else:
         click.echo(count_msg)
+
+
+@main.command()
+@click.pass_context
+def run(ctx: click.Context) -> None:
+    """Run tests across all packages in the monorepo.
+
+    Discovers all packages with tests, runs 'uv sync' to install dependencies,
+    then executes pytest in each package. Shows progress and results for each
+    package.
+
+    Use -v to see package names as they complete.
+    Use -vv to see full pytest output for each package.
+    """
+    verbose = ctx.obj.get("verbose", 0)
+    use_color = sys.stdout.isatty()
+
+    # Discover all packages with tests
+    packages = find_packages(Path.cwd())
+    packages_with_tests = [p for p in packages if p.has_tests]
+
+    if not packages_with_tests:
+        click.echo("No packages with tests found.")
+        return
+
+    # Track results
+    results = []
+
+    # Run tests in each package
+    for pkg in packages_with_tests:
+        # Show which package is being tested (unless verbosity is 0)
+        if verbose >= 1:
+            pkg_name_display = (
+                click.style(pkg.name, fg="cyan", bold=True) if use_color else pkg.name
+            )
+            click.echo(f"\nTesting {pkg_name_display}...")
+
+        # Run uv sync first
+        sync_result = sync_package(pkg.path, pkg.name, verbose=verbose >= 2)
+
+        if not sync_result.success:
+            # Sync failed - show error and skip package
+            error_msg = f"Failed to sync {pkg.name}: {sync_result.output}"
+            if use_color:
+                click.echo(click.style(error_msg, fg="red"))
+            else:
+                click.echo(error_msg)
+            results.append((pkg.name, False, 0.0))
+            continue
+
+        # Show sync success in very verbose mode
+        if verbose >= 2 and sync_result.output:
+            click.echo(f"Sync output:\n{sync_result.output}")
+
+        # Run tests
+        test_result = run_tests_in_package(pkg.path, pkg.name)
+        results.append((pkg.name, test_result.passed, test_result.duration))
+
+        # Show results based on verbosity
+        if verbose >= 2:
+            # Show full pytest output
+            click.echo(test_result.output)
+
+        if verbose >= 1:
+            # Show pass/fail status
+            if test_result.passed:
+                status = click.style("✓ PASSED", fg="green") if use_color else "PASSED"
+            else:
+                status = click.style("✗ FAILED", fg="red") if use_color else "FAILED"
+            click.echo(f"{pkg.name}: {status}")
+
+    # Minimal output mode (verbose == 0): just show package names with status
+    if verbose == 0:
+        click.echo("\nTest Results:")
+        for pkg_name, passed, duration in results:
+            if use_color:
+                if passed:
+                    status = click.style("✓", fg="green")
+                else:
+                    status = click.style("✗", fg="red")
+            else:
+                status = "✓" if passed else "✗"
+            click.echo(f"{status} {pkg_name}")
 
 
 if __name__ == "__main__":
