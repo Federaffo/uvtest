@@ -121,7 +121,7 @@
         "verify without flag: all packages run even if some fail",
         "verify with flag: execution stops after first failure"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Default behavior is to run all packages and report failures at end."
     },
     {

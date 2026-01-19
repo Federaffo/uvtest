@@ -680,3 +680,121 @@ NEXT RECOMMENDED TASK:
 fail-fast-option - Add --fail-fast flag to run command to stop execution on first
 failure. This is commonly needed in CI/CD and is a natural extension of the run
 command. It will work well with the exit code implementation just completed.
+--------------------------------------------------------------------------------
+2026-01-19 | Task: fail-fast-option | Status: COMPLETED
+--------------------------------------------------------------------------------
+
+TASK DESCRIPTION:
+Add --fail-fast flag to stop on first test failure
+
+PRIORITY DECISION:
+Selected fail-fast-option as the highest priority task because:
+1. It was explicitly recommended in the previous two progress log entries
+2. It's a CRITICAL CI/CD feature - teams often want fast feedback when running 
+   tests in pipelines, stopping immediately when a failure is detected
+3. It builds directly on the run command and exit codes just implemented
+4. It's a commonly requested feature for development workflows
+5. It's well-defined and self-contained with clear acceptance criteria
+6. The coverage-command task (not yet implemented) will also need this flag,
+   so implementing it now establishes the pattern
+
+IMPLEMENTATION DETAILS:
+
+1. Updated src/uvtest/cli.py - run command:
+   - Added @click.option("--fail-fast", is_flag=True, default=False) decorator
+   - Added fail_fast parameter to run() function signature
+   - Updated help text to mention --fail-fast flag
+   - Implemented fail-fast logic after test execution
+   - Implemented fail-fast logic after sync failure
+
+2. Fail-fast behavior implementation:
+   - When a test fails (test_result.passed is False):
+     * Checks if fail_fast flag is enabled
+     * If enabled: displays yellow/bold message "Stopping execution due to --fail-fast"
+     * If enabled: breaks out of package loop, skipping remaining packages
+   
+   - When a sync fails (sync_result.success is False):
+     * Records failure in results list
+     * Checks if fail_fast flag is enabled
+     * If enabled: displays same yellow/bold message
+     * If enabled: breaks out of package loop
+   
+   - When fail-fast is disabled (default):
+     * All packages are processed regardless of failures
+     * All failures are recorded and displayed at the end
+
+3. Key design decisions:
+   - Default behavior (fail_fast=False) unchanged - runs all packages
+   - fail-fast stops on FIRST failure, whether it's sync or test failure
+   - Clear user feedback with styled message explaining why execution stopped
+   - Yellow color for fail-fast message (distinguishes from error/success messages)
+   - Message includes "(first failure detected)" for clarity
+   - break statement exits package loop cleanly
+   - Results accumulated so far are still displayed
+   - Exit code is still 1 (any failure triggers exit 1)
+
+4. Created comprehensive unit tests in tests/test_cli.py:
+   - TestFailFastOption class with 3 tests:
+     * test_fail_fast_stops_after_first_failure:
+       - Mocks 3 packages, first one fails
+       - Verifies execution stops after first failure
+       - Verifies fail-fast message is shown
+       - Verifies only 1 test run occurs (not all 3)
+     
+     * test_without_fail_fast_continues_all_packages:
+       - Mocks 3 packages, first one fails, rest pass
+       - Verifies without --fail-fast all 3 packages are tested
+       - Verifies fail-fast message is NOT shown
+       - Verifies all 3 test runs occur
+     
+     * test_fail_fast_with_sync_failure:
+       - Mocks 2 packages, first sync fails
+       - Verifies fail-fast stops after sync failure
+       - Verifies fail-fast message is shown
+       - Verifies no test runs occur (sync failed)
+
+VERIFICATION:
+
+All acceptance criteria verified:
+- ✓ add --fail-fast flag to 'run' and 'coverage' commands
+  - Added to run command (coverage command not yet implemented)
+  - `uv run uvtest run --help` shows --fail-fast flag
+- ✓ when enabled: stop execution after first package with failing tests
+  - Test verified: test_fail_fast_stops_after_first_failure passes
+  - Stops on test failure and sync failure
+- ✓ when disabled (default): continue running all packages
+  - Test verified: test_without_fail_fast_continues_all_packages passes
+- ✓ show clear message when stopping due to --fail-fast
+  - Yellow/bold message: "Stopping execution due to --fail-fast (first failure detected)"
+- ✓ verify without flag: all packages run even if some fail
+  - Test verifies all 3 packages run when first fails
+- ✓ verify with flag: execution stops after first failure
+  - Test verifies only 1 package runs when --fail-fast enabled
+
+Testing results:
+- All 69 tests pass (66 existing + 3 new fail-fast tests)
+- `uv run pytest tests/ -v` shows 69 passed, 1 warning (benign)
+- New tests use mocking to simulate package discovery, sync, and test execution
+- Tests verify both behavior (stop/continue) and output messages
+
+FILES MODIFIED:
+- src/uvtest/cli.py (added --fail-fast flag and logic, +19 lines)
+- tests/test_cli.py (added TestFailFastOption class with 3 tests, +149 lines)
+
+FILES UPDATED:
+- prd.jsonc (marked fail-fast-option as passes: true)
+
+NOTES:
+- AGENTS.md does not exist, so no typecheck/lint requirements to run
+- All 69 tests pass with new functionality
+- The PytestCollectionWarning about TestResult class persists but is benign
+- The flag will need to be added to coverage-command when that task is implemented
+- Fail-fast works for both sync failures and test failures
+- Clear visual feedback helps users understand why execution stopped
+- Default behavior unchanged - all packages run unless --fail-fast is specified
+- Exit code behavior unchanged - still exits 1 on any failure
+
+NEXT RECOMMENDED TASK:
+package-filter - Add --package/-p flag to filter which packages to test. This is
+another commonly requested feature for development workflows and will work well
+with --fail-fast. It's independent and well-defined.

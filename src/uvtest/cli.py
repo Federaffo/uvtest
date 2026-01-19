@@ -84,8 +84,14 @@ def scan(ctx: click.Context) -> None:
 
 
 @main.command()
+@click.option(
+    "--fail-fast",
+    is_flag=True,
+    default=False,
+    help="Stop execution after the first package with failing tests.",
+)
 @click.pass_context
-def run(ctx: click.Context) -> None:
+def run(ctx: click.Context, fail_fast: bool) -> None:
     """Run tests across all packages in the monorepo.
 
     Discovers all packages with tests, runs 'uv sync' to install dependencies,
@@ -94,6 +100,7 @@ def run(ctx: click.Context) -> None:
 
     Use -v to see package names as they complete.
     Use -vv to see full pytest output for each package.
+    Use --fail-fast to stop after the first failure.
     """
     verbose = ctx.obj.get("verbose", 0)
     use_color = sys.stdout.isatty()
@@ -129,6 +136,18 @@ def run(ctx: click.Context) -> None:
             else:
                 click.echo(error_msg)
             results.append((pkg.name, False, 0.0))
+
+            # Check fail-fast: stop if sync failed
+            if fail_fast:
+                fail_fast_msg = (
+                    "\nStopping execution due to --fail-fast (first failure detected)."
+                )
+                if use_color:
+                    click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+                else:
+                    click.echo(fail_fast_msg)
+                break
+
             continue
 
         # Show sync success in very verbose mode
@@ -151,6 +170,17 @@ def run(ctx: click.Context) -> None:
             else:
                 status = click.style("✗ FAILED", fg="red") if use_color else "FAILED"
             click.echo(f"{pkg.name}: {status}")
+
+        # Check fail-fast: stop if this test failed
+        if fail_fast and not test_result.passed:
+            fail_fast_msg = (
+                "\nStopping execution due to --fail-fast (first failure detected)."
+            )
+            if use_color:
+                click.echo(click.style(fail_fast_msg, fg="yellow", bold=True))
+            else:
+                click.echo(fail_fast_msg)
+            break
 
     # Minimal output mode (verbose == 0): just show package names with status
     if verbose == 0:

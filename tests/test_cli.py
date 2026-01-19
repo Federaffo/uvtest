@@ -246,3 +246,163 @@ class TestRunCommandExitCodes:
 
             # Should exit with code 1
             assert result.exit_code == 1
+
+
+class TestFailFastOption:
+    """Test --fail-fast flag behavior."""
+
+    def test_fail_fast_stops_after_first_failure(self):
+        """Verify --fail-fast stops execution after first failing package."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock three packages with tests
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                ),
+                Package(
+                    name="pkg-c",
+                    path=Path("/fake/pkg-c"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-c/pyproject.toml"),
+                ),
+            ]
+
+            # Mock successful sync
+            mock_sync_result = Mock()
+            mock_sync_result.success = True
+            mock_sync_result.output = ""
+            mock_sync.return_value = mock_sync_result
+
+            # Mock test runs: first fails, others should not be called
+            mock_test_result_fail = Mock()
+            mock_test_result_fail.passed = False
+            mock_test_result_fail.duration = 1.0
+            mock_test_result_fail.output = "Tests failed"
+            mock_run.return_value = mock_test_result_fail
+
+            result = runner.invoke(main, ["run", "--fail-fast"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+            # Should show fail-fast message
+            assert "Stopping execution due to --fail-fast" in result.output
+            # Should only run tests once (for first package)
+            assert mock_run.call_count == 1
+
+    def test_without_fail_fast_continues_all_packages(self):
+        """Verify without --fail-fast, execution continues through all packages."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock three packages with tests
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                ),
+                Package(
+                    name="pkg-c",
+                    path=Path("/fake/pkg-c"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-c/pyproject.toml"),
+                ),
+            ]
+
+            # Mock successful sync
+            mock_sync_result = Mock()
+            mock_sync_result.success = True
+            mock_sync_result.output = ""
+            mock_sync.return_value = mock_sync_result
+
+            # Mock test runs: first fails, rest pass
+            mock_test_result_fail = Mock()
+            mock_test_result_fail.passed = False
+            mock_test_result_fail.duration = 1.0
+            mock_test_result_fail.output = "Tests failed"
+
+            mock_test_result_pass = Mock()
+            mock_test_result_pass.passed = True
+            mock_test_result_pass.duration = 1.0
+            mock_test_result_pass.output = "Tests passed"
+
+            mock_run.side_effect = [
+                mock_test_result_fail,
+                mock_test_result_pass,
+                mock_test_result_pass,
+            ]
+
+            result = runner.invoke(main, ["run"])
+
+            # Should exit with code 1 (first test failed)
+            assert result.exit_code == 1
+            # Should NOT show fail-fast message
+            assert "Stopping execution due to --fail-fast" not in result.output
+            # Should run tests for all three packages
+            assert mock_run.call_count == 3
+
+    def test_fail_fast_with_sync_failure(self):
+        """Verify --fail-fast stops when sync fails."""
+        runner = CliRunner()
+
+        with (
+            patch("uvtest.cli.find_packages") as mock_find,
+            patch("uvtest.cli.sync_package") as mock_sync,
+            patch("uvtest.cli.run_tests_in_package") as mock_run,
+        ):
+            # Mock two packages with tests
+            mock_find.return_value = [
+                Package(
+                    name="pkg-a",
+                    path=Path("/fake/pkg-a"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-a/pyproject.toml"),
+                ),
+                Package(
+                    name="pkg-b",
+                    path=Path("/fake/pkg-b"),
+                    has_tests=True,
+                    pyproject_path=Path("/fake/pkg-b/pyproject.toml"),
+                ),
+            ]
+
+            # Mock failed sync (first package fails sync)
+            mock_sync_result = Mock()
+            mock_sync_result.success = False
+            mock_sync_result.output = "Sync failed"
+            mock_sync.return_value = mock_sync_result
+
+            result = runner.invoke(main, ["run", "--fail-fast"])
+
+            # Should exit with code 1
+            assert result.exit_code == 1
+            # Should show fail-fast message
+            assert "Stopping execution due to --fail-fast" in result.output
+            # Should not run any tests (sync failed)
+            assert mock_run.call_count == 0
