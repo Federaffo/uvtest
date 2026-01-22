@@ -189,22 +189,10 @@ def run_tests_isolated(
         if result.stderr:
             output = output + "\n" + result.stderr if output else result.stderr
 
-        # Check for common dependency resolution errors in isolated mode
-        if result.returncode != 0 and (
-            "No solution found" in output
-            or "Unable to find" in output
-            or "could not find" in output.lower()
-        ):
-            output += (
-                "\n\nHint: In isolated mode, dependency resolution failures often indicate:\n"
-                "  - Missing or incorrect dependencies in pyproject.toml\n"
-                "  - Missing test dependencies in [dependency-groups.test]\n"
-                "  - Try adding missing packages to [dependency-groups.test] or use --sync mode"
-            )
-
         return TestResult(
             package_name=package_name,
-            passed=result.returncode == 0,
+            passed=result.returncode == 0
+            or result.returncode == 5,  # If no test are found it's ok
             duration=duration,
             output=output.strip(),
             return_code=result.returncode,

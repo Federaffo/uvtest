@@ -213,22 +213,21 @@ def run(
 
     # Discover all packages with tests
     packages = find_packages(Path.cwd())
-    packages_with_tests = [p for p in packages if p.has_tests]
 
     # Apply package filter if specified
     if package:
         filtered_packages = []
-        for pkg in packages_with_tests:
+        for pkg in packages:
             # Check if package name matches any of the filter patterns
             for pattern in package:
                 if fnmatch.fnmatch(pkg.name, pattern):
                     filtered_packages.append(pkg)
                     break
 
-        packages_with_tests = filtered_packages
+        packages = filtered_packages
 
         # Show error if filter matched nothing
-        if not packages_with_tests:
+        if not packages:
             error_msg = f"No packages match the filter(s): {', '.join(package)}"
             if use_color:
                 click.echo(click.style(error_msg, fg="red"))
@@ -236,7 +235,7 @@ def run(
                 click.echo(error_msg)
             sys.exit(1)
 
-    if not packages_with_tests:
+    if not packages:
         click.echo("No packages with tests found.")
         sys.exit(1)
 
@@ -244,7 +243,7 @@ def run(
     results = []
 
     # Run tests in each package
-    for pkg in packages_with_tests:
+    for pkg in packages:
         # Show which package is being tested (unless verbosity is 0)
         if verbose >= 1:
             pkg_name_display = (
