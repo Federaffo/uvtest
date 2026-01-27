@@ -121,4 +121,4 @@ my-monorepo/
 
 ## License
 
-[Your License Here]
+MIT
